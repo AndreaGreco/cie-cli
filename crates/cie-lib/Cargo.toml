@@ -10,11 +10,13 @@ description = "Libreria core per la Carta d'Identità Elettronica italiana"
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
-cryptoki.workspace = true
 serde.workspace = true
 hex = "0.4"
 x509-cert = "0.2"
 der = "0.7"
+
+# PC/SC per comunicazione diretta con smart card
+pcsc = "2.8"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
