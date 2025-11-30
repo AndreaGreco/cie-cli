@@ -27,6 +27,13 @@ enum Commands {
 
     /// Test comunicazione PC/SC diretta con debug completo
     PcscTest,
+
+    /// Autentica con PIN e legge dati protetti
+    Auth {
+        /// PIN (8 cifre). Se non specificato, verrà richiesto interattivamente.
+        #[arg(short, long)]
+        pin: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -51,5 +58,6 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Info => commands::info::execute(),
         Commands::PcscTest => commands::pcsc_test::execute(),
+        Commands::Auth { pin } => commands::auth::execute(pin),
     }
 }

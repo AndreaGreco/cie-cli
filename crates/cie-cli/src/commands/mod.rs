@@ -2,3 +2,4 @@
 
 pub mod info;
 pub mod pcsc_test;
+pub mod auth;

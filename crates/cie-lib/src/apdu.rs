@@ -351,12 +351,88 @@ impl<'a> CieCard<'a> {
         self.card.transmit(&apdu)
     }
 
-    /// Verifica il PIN
+    /// Verifica il PIN e ritorna il risultato dettagliato
+    ///
+    /// Ritorna:
+    /// - Ok(()) se il PIN è corretto
+    /// - Err con i tentativi rimanenti se il PIN è sbagliato
+    /// - Err se il PIN è bloccato o altro errore
+    ///
+    /// NOTA: La CIE richiede normalmente Secure Messaging per VERIFY.
+    /// Questo metodo tenta prima senza SM, poi riporta l'errore.
     pub fn verify_pin(&mut self, pin: &str) -> Result<()> {
+        use tracing::{debug, warn, info};
+
+        // Valida il PIN (deve essere 8 cifre)
+        if pin.len() != 8 || !pin.chars().all(|c| c.is_ascii_digit()) {
+            return Err(crate::error::CieError::SigningError(
+                "PIN deve essere 8 cifre numeriche".into()
+            ));
+        }
+
         let apdu = CieApdu::verify_pin(pin);
-        self.card.transmit(&apdu)?;
-        self.authenticated = true;
-        Ok(())
+        debug!("VERIFY PIN APDU: {:02X?}", apdu);
+
+        let (_, sw) = self.card.transmit_raw(&apdu)?;
+        debug!("VERIFY PIN SW: {:04X}", sw);
+
+        match sw {
+            0x9000 => {
+                info!("PIN verificato correttamente!");
+                self.authenticated = true;
+                Ok(())
+            }
+            0x6983 => {
+                // PIN bloccato
+                warn!("PIN BLOCCATO!");
+                Err(crate::error::CieError::SigningError(
+                    "PIN bloccato. Usa il PUK per sbloccarlo.".into()
+                ))
+            }
+            sw if sw >= 0x63C0 && sw <= 0x63CF => {
+                // PIN errato, tentativi rimanenti = sw - 0x63C0
+                let remaining = sw - 0x63C0;
+                warn!("PIN errato! Tentativi rimanenti: {}", remaining);
+                Err(crate::error::CieError::SigningError(
+                    format!("PIN errato. Tentativi rimanenti: {}", remaining)
+                ))
+            }
+            0x6982 => {
+                // Security status not satisfied - serve Secure Messaging
+                warn!("Richiesto Secure Messaging per VERIFY PIN");
+                Err(crate::error::CieError::SigningError(
+                    "Autenticazione richiede Secure Messaging (non ancora implementato)".into()
+                ))
+            }
+            0x6700 | 0x6300 => {
+                // Wrong length / Authentication failed
+                warn!("PIN errato o formato non valido");
+                Err(crate::error::CieError::SigningError("PIN errato".into()))
+            }
+            _ => {
+                warn!("Errore VERIFY PIN: {:04X}", sw);
+                Err(crate::error::CieError::SigningError(
+                    format!("Errore verifica PIN: {:04X}", sw)
+                ))
+            }
+        }
+    }
+
+    /// Ritorna i tentativi PIN rimanenti (se leggibili senza autenticazione)
+    pub fn get_pin_retries(&self) -> Option<u8> {
+        use tracing::debug;
+
+        // Alcuni tipi di CIE permettono di leggere i tentativi con un VERIFY vuoto
+        // 00 20 00 01 00 -> ritorna 63Cx dove x = tentativi
+        let apdu = vec![0x00, 0x20, 0x00, 0x01, 0x00];
+
+        if let Ok((_, sw)) = self.card.transmit_raw(&apdu) {
+            debug!("GET PIN RETRIES SW: {:04X}", sw);
+            if sw >= 0x63C0 && sw <= 0x63CF {
+                return Some((sw - 0x63C0) as u8);
+            }
+        }
+        None
     }
 
     /// Verifica se il PIN è stato inserito
