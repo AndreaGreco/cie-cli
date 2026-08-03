@@ -54,14 +54,18 @@ pub fn execute(percorso: String, pin: Option<String>, uscita: Option<String>) ->
     let out_firma = uscita.unwrap_or_else(|| format!("{}.sig", percorso));
     std::fs::write(&out_firma, &firma)
         .with_context(|| format!("scrittura di {}", out_firma))?;
-    println!("\n  Firma:       {}", out_firma);
+    println!("\n  Firma detached (RSA grezza): {}", out_firma);
 
     // Il certificato serve a chiunque debba verificare: senza, la firma e'
     // solo un blocco di byte.
     let out_cert = format!("{}.cer", Path::new(&percorso).display());
     std::fs::write(&out_cert, &certificato)
         .with_context(|| format!("scrittura di {}", out_cert))?;
-    println!("  Certificato: {}", out_cert);
+    println!("  Certificato:                {}", out_cert);
+
+    println!("\n  Il file originale non e' stato modificato: questa e' una firma");
+    println!("  separata, non un documento firmato. Per un PDF che si apra con la");
+    println!("  firma incorporata serve un contenitore PAdES, non ancora previsto.");
 
     println!("\nVerifica con OpenSSL:");
     println!("  openssl x509 -inform DER -in {} -pubkey -noout > pub.pem", out_cert);
