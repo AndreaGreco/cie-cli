@@ -4,6 +4,7 @@ members = [
     "crates/cie-lib",
     "crates/cie-firma",
     "crates/cie-cli",
+    "crates/cie-gui",
 ]
 
 [workspace.package]

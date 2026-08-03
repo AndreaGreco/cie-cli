@@ -1,0 +1,25 @@
+[package]
+name = "cie-gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Interfaccia grafica per firmare documenti con la Carta d'Identità Elettronica"
+
+[[bin]]
+name = "cie-gui"
+path = "src/main.rs"
+
+[dependencies]
+cie-firma.workspace = true
+cie-lib.workspace = true
+anyhow.workspace = true
+
+eframe = "0.35"
+rfd = "0.17"
+hayro = "0.7"
+
+# Il portachiavi via D-Bus, senza passare dal binario `secret-tool`.
+# `crypto-rust` evita di legarsi a OpenSSL di sistema.
+secret-service = { version = "5", default-features = false, features = ["rt-tokio-crypto-rust"] }
+tokio = { version = "1", features = ["rt", "net", "time"] }
