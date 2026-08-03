@@ -69,6 +69,8 @@ cie sign-p7m <file>   # CAdES: contenuto e firma insieme in <file>.p7m
 cie sign-pdf <f.pdf>  # PAdES: la firma finisce dentro il PDF
 
 cie -vv auth      # con ogni APDU in TX/RX
+
+cie-gui           # le stesse firme, con il documento davanti
 ```
 
 `cie sign-p7m` vale per qualunque file, PDF compresi: produce una busta CAdES
@@ -86,6 +88,25 @@ compilare i moduli e firmare — il default, quindi altri possono controfirmare 
 e `3` permette anche le annotazioni. Ammessa solo sulla prima firma di un
 documento.
 
+### L'interfaccia grafica
+
+`cie-gui` è un binario separato: chi usa la riga di comando non si porta dietro
+un toolkit grafico.
+
+```bash
+cargo run --release -p cie-gui
+```
+
+Un wizard di cinque passi — quattro se la firma non è PAdES, perché il riquadro
+esiste solo lì. Il PDF si vede a schermo pagina per pagina e il riquadro della
+firma si sceglie **trascinandolo**, invece di subire la posizione cablata di
+`cie sign-pdf`. Il nome del file firmato è quello proposto dalla CLI, e si può
+cambiare con un salva-con-nome.
+
+Il PIN si legge, si salva e si cancella dal portachiavi direttamente dalla
+finestra (D-Bus, senza passare per il binario `secret-tool`). La voce è la
+stessa che usa `cie`, quindi i due strumenti si trovano.
+
 ### Il PIN
 
 In ordine di precedenza: argomento `--pin`, portachiavi di sistema, prompt a
@@ -96,7 +117,8 @@ history della shell né in `ps`:
 secret-tool store --label='CIE PIN' service cie
 ```
 
-Servono tutte e 8 le cifre.
+Servono tutte e 8 le cifre. `cie-gui` scrive e cancella la stessa voce dalla
+sua schermata del PIN.
 
 ## Architettura
 
@@ -111,13 +133,29 @@ crates/
 │       ├── asn1.rs              parser BER-TLV (tag fino a 4 byte)
 │       ├── titolare.rs          estrazione dati dal certificato X.509
 │       └── error.rs
-└── cie-cli/                     binario `cie`
+├── cie-firma/                   firmatario on-card e contenitori
+│   └── src/
+│       ├── firmatario.rs        FirmatarioCie: la carta come CryptoSigner
+│       ├── pades.rs             PAdES B-B, riquadro visibile
+│       ├── cades.rs             CAdES enveloping (.p7m)
+│       └── detached.rs          firma RSA grezza, con verifica locale
+├── cie-cli/                     binario `cie`
+└── cie-gui/                     binario `cie-gui`
+    └── src/
+        ├── wizard.rs            i cinque passi
+        ├── anteprima.rs         hayro + riquadro → punti PDF
+        ├── lavoro.rs            la carta su un thread suo
+        └── portachiavi.rs       il PIN via D-Bus
 ```
+
+`cie-firma` sta in mezzo apposta: `underskrift` si porta dietro lopdf e un
+parser di font, roba che non ha niente a che fare con una APDU. `cie-lib` resta
+il livello carta puro, come serve al futuro modulo PKCS#11.
 
 ## Sviluppo
 
 ```bash
-cargo test      # 22 test, nessuno richiede la carta
+cargo test      # 38 test, nessuno richiede la carta
 cargo clippy
 ```
 

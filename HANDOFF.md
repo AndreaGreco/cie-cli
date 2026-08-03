@@ -26,8 +26,9 @@ Funziona e **verificato su carta reale** (Bit4Id, ATR `3B 8F 80 01 80 31 80 65
   l'alterazione di un byte)
 
 - **PDF firmati in PAdES B-B** con riquadro visibile, verificati con `pdfsig`
+- **interfaccia grafica** `cie-gui`: anteprima del PDF e riquadro trascinabile
 
-25 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
+38 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
 
 ```bash
 cie info                 # dati leggibili senza PIN
@@ -36,10 +37,59 @@ cie sign <file>          # firma detached (.sig) + certificato (.cer)
 cie sign-p7m <file>      # CAdES enveloping: contenuto + firma in <file>.p7m
 cie sign-pdf <f.pdf>     # PAdES, firma dentro il PDF
 cie -vv auth             # ogni APDU in TX/RX
+
+cie-gui                  # le stesse firme, con il documento davanti
 ```
 
 Il PIN si legge dal portachiavi: `secret-tool store --label='CIE PIN' service cie`.
-Servono tutte e 8 le cifre.
+Servono tutte e 8 le cifre. `cie-gui` scrive e cancella la stessa voce da solo.
+
+## Il livello `cie-firma`
+
+`FirmatarioCie` e i tre contenitori vivevano dentro il binario `cie-cli`, dove
+la GUI non poteva raggiungerli. Ora stanno in `crates/cie-firma`, fra `cie-lib`
+e chi ha una faccia. La ragione per cui non sono finiti in `cie-lib` e' sempre
+quella scritta piu' sotto: `underskrift` si porta dietro lopdf e un parser di
+font, e il modulo PKCS#11 non deve ereditarli per esporre `C_Sign`.
+
+Tre cambi di sostanza rispetto a prima:
+
+- il riquadro PAdES non e' piu' cablato, arriva in `OpzioniPades` (la CLI passa
+  la posizione di prima, quindi `cie sign-pdf` si comporta come sempre)
+- `apri_e_autentica` non stampa piu': riferisce l'avanzamento via callback, e i
+  due chiamanti ne fanno quel che vogliono
+- `sign.rs` ha perso l'handshake duplicato; la verifica locale della firma
+  detached e' dentro `firma_detached`
+
+## `cie-gui`
+
+`eframe` + `rfd` + `hayro`, binario separato. Wizard di cinque passi, quattro
+quando la firma non e' PAdES: il riquadro esiste solo li'.
+
+Il pezzo che merita attenzione e' `anteprima.rs`. `SignatureRect::Absolute` di
+underskrift finisce dritto nel `/Rect` dell'annotazione — **user space non
+ruotato, origine in basso a sinistra** — mentre l'immagine che l'utente trascina
+e' ruotata secondo `/Rotate` e ritagliata sul crop box. `punti_pdf()` annulla la
+rotazione, esce dal crop box e ribalta la y. E' una funzione pura e i test la
+esercitano sulle quattro rotazioni con un crop box traslato: sbagliarla
+metterebbe la firma nel posto sbagliato **senza nessun errore visibile**.
+
+Il portachiavi passa da `secret-service` (D-Bus) invece che dal binario
+`secret-tool`, con attributo `service=cie` ed etichetta `CIE PIN`: sono gli
+stessi che scriverebbe `secret-tool store`, ed e' l'unica cosa che tiene insieme
+le due strade. **Da verificare a mano dopo la prima scrittura dalla GUI**:
+
+```bash
+secret-tool lookup service cie
+```
+
+La CLI continua a leggere con lo shell-out: non si tira dentro zbus.
+
+Restano fuori, per scelta: drag & drop, zoom sull'anteprima, maniglie di
+ridimensionamento del riquadro, memoria delle preferenze fra sessioni.
+
+Il progetto completo sta in
+`docs/superpowers/specs/2026-08-04-cie-gui-design.md`.
 
 ---
 
@@ -172,11 +222,12 @@ senza scrivere una riga di formato.
 
 Nuovo crate `crates/cie-pkcs11/` con `crate-type = ["cdylib"]` → `libcie_pkcs11.so`.
 
-È il motivo per cui **underskrift sta in `cie-cli` e non in `cie-lib`**: la
+È il motivo per cui **underskrift sta in `cie-firma` e non in `cie-lib`**: la
 `cdylib` dipende da `cie-lib`, e non ha nessun bisogno di sapere cosa sia un PDF.
 Se la libreria PAdES finisse nel livello carta, la `.so` si porterebbe dietro
 lopdf e un parser di font per esporre `C_Sign`. `cie-lib` resta il livello carta
-puro; il `FirmatarioCie` che implementa `CryptoSigner` sono 40 righe nel comando.
+puro; il `FirmatarioCie` che implementa `CryptoSigner` sono 40 righe in
+`cie-firma`, e la `.so` non ha motivo di dipenderne.
 
 Cose da sapere prima di iniziare:
 
