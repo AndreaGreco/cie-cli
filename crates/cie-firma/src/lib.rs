@@ -19,8 +19,10 @@ mod signer;
 
 pub use cades::sign_p7m;
 pub use detached::sign_detached;
-pub use pades::{sign_pdf, PadesOptions};
+pub use pades::{preview_stamp_lines, sign_pdf, stamp_lines, PadesOptions};
 pub use signer::{open_and_authenticate, CieSigner, Step};
 
 // Callers need the trait in scope to hand out a `&dyn CryptoSigner`.
 pub use underskrift::CryptoSigner;
+// The preview draws the stamp itself, so it needs the line type.
+pub use underskrift::TextLine;

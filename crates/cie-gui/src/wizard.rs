@@ -296,6 +296,52 @@ impl App {
     }
 }
 
+const STAMP_BLUE: egui::Color32 = egui::Color32::from_rgb(60, 120, 220);
+
+/// Draws inside the stamp rectangle a mock-up of what the signature will look
+/// like, at the same scale it will have in the PDF.
+///
+/// The lines come from `cie_firma::preview_stamp_lines`, the very function that
+/// composes the real stamp: no second copy of the layout to keep in step. The
+/// holder's name and tax code are placeholders — they live in a certificate
+/// that stays locked behind the PIN until signing time.
+///
+/// ponytail: egui's default fonts ship no bold face, so a bold line is drawn
+/// darker instead of heavier. Swap in a bold font if it ever reads wrong.
+fn draw_stamp_mockup(painter: &egui::Painter, rect: egui::Rect, px_per_pt: f32, reason: &str) {
+    let reason = reason.trim();
+    let lines = cie_firma::preview_stamp_lines((!reason.is_empty()).then_some(reason));
+
+    let pad = 3.0 * px_per_pt;
+    let mut y = rect.min.y + pad;
+
+    for line in &lines {
+        let size_px = line.font_size.unwrap_or(7.0) * px_per_pt;
+        // Below roughly 5 px text is unreadable mush: better to stop than to
+        // fill the box with grey noise.
+        if size_px < 5.0 {
+            break;
+        }
+        let leading = size_px * 1.25;
+        if y + leading > rect.max.y {
+            break;
+        }
+
+        painter.text(
+            egui::pos2(rect.min.x + pad, y),
+            egui::Align2::LEFT_TOP,
+            &line.text,
+            egui::FontId::proportional(size_px),
+            if line.bold {
+                egui::Color32::from_gray(20)
+            } else {
+                egui::Color32::from_gray(90)
+            },
+        );
+        y += leading;
+    }
+}
+
 /// The strip of steps along the top.
 fn breadcrumb(ui: &mut egui::Ui, steps: &[Step], current: usize) {
     ui.horizontal(|ui| {
@@ -442,7 +488,10 @@ impl App {
             }
         });
 
-        ui.weak("Trascina sull'anteprima per spostare il riquadro della firma.");
+        ui.weak(
+            "Trascina sull'anteprima per spostare il riquadro. Il testo è un facsimile: \
+             nome e codice fiscale li legge dalla carta al momento della firma.",
+        );
         ui.add_space(6.0);
 
         self.draw_preview(ui);
@@ -455,6 +504,7 @@ impl App {
         // first, then shrink if it overflows the height.
         let room = ui.available_size();
         let ratio = doc.aspect_ratio(self.page);
+        let (page_width_pt, _) = doc.display_size(self.page);
         let mut width = room.x.min(900.0);
         if width / ratio > room.y {
             width = room.y * ratio;
@@ -516,17 +566,18 @@ impl App {
             rect.min + egui::vec2(x1 * rect.width(), y1 * rect.height()),
         );
         let painter = ui.painter_at(rect);
-        painter.rect_filled(
-            on_screen,
-            2.0,
-            egui::Color32::from_rgba_unmultiplied(60, 120, 220, 40),
-        );
+        painter.rect_filled(on_screen, 2.0, egui::Color32::from_white_alpha(235));
         painter.rect_stroke(
             on_screen,
             2.0,
-            egui::Stroke::new(1.5, egui::Color32::from_rgb(60, 120, 220)),
+            egui::Stroke::new(1.5, STAMP_BLUE),
             egui::StrokeKind::Inside,
         );
+
+        // One point of the page is this many pixels on screen: the mock-up has
+        // to shrink and grow with the preview, or it stops predicting anything.
+        let px_per_pt = rect.width() / page_width_pt;
+        draw_stamp_mockup(&ui.painter_at(on_screen), on_screen, px_per_pt, &self.reason);
     }
 
     fn step_pin(&mut self, ui: &mut egui::Ui) {

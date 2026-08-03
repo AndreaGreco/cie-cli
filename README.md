@@ -158,7 +158,7 @@ il livello carta puro, come serve al futuro modulo PKCS#11.
 ## Sviluppo
 
 ```bash
-cargo test      # 42 test, nessuno richiede la carta
+cargo test      # 43 test, nessuno richiede la carta
 cargo clippy
 ```
 

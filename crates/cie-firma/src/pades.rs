@@ -41,9 +41,16 @@ impl Default for PadesOptions {
     }
 }
 
-/// The lines of the visible stamp, taken from the certificate.
-fn stamp_lines(certificate: &[u8], reason: Option<&str>, when: &str) -> Vec<TextLine> {
-    let holder = DatiTitolare::from_certificate_der(certificate).unwrap_or_default();
+/// The lines of the visible stamp.
+///
+/// `certificate` is `None` before the card has been opened — the preview needs
+/// to draw the stamp while the holder's details are still unknown. In that case
+/// the card-derived lines carry placeholders of realistic width, so what the
+/// user sees on screen has the shape and size of what will end up in the PDF.
+pub fn stamp_lines(certificate: Option<&[u8]>, reason: Option<&str>, when: &str) -> Vec<TextLine> {
+    let holder = certificate
+        .and_then(DatiTitolare::from_certificate_der)
+        .unwrap_or_default();
 
     let name = holder
         .nome_completo
@@ -51,20 +58,33 @@ fn stamp_lines(certificate: &[u8], reason: Option<&str>, when: &str) -> Vec<Text
             (Some(n), Some(c)) => Some(format!("{} {}", n, c)),
             _ => None,
         })
-        .unwrap_or_else(|| "titolare non identificato".to_string());
+        .unwrap_or_else(|| match certificate {
+            Some(_) => "titolare non identificato".to_string(),
+            None => "NOME DEL TITOLARE".to_string(),
+        });
 
     let mut lines = vec![
         TextLine::new("Firmato digitalmente da").size(7.0),
         TextLine::new(name).bold().size(9.0),
     ];
-    if let Some(cf) = holder.codice_fiscale {
-        lines.push(TextLine::new(format!("C.F. {}", cf)).size(7.0));
+    match (holder.codice_fiscale, certificate) {
+        (Some(cf), _) => lines.push(TextLine::new(format!("C.F. {}", cf)).size(7.0)),
+        // No certificate yet: keep the line, it takes up room in the box.
+        (None, None) => lines.push(TextLine::new("C.F. XXXXXXXXXXXXXXXX").size(7.0)),
+        (None, Some(_)) => {}
     }
     lines.push(TextLine::new(format!("Data: {}", when)).size(7.0));
     if let Some(r) = reason {
         lines.push(TextLine::new(format!("Motivo: {}", r)).size(7.0));
     }
     lines
+}
+
+/// The stamp as it will look, for drawing on a preview before the card is
+/// opened. Same lines the signature will carry, with today's date.
+pub fn preview_stamp_lines(reason: Option<&str>) -> Vec<TextLine> {
+    let when = chrono::Local::now().format("%d/%m/%Y %H:%M:%S").to_string();
+    stamp_lines(None, reason, &when)
 }
 
 /// Signs a PDF at PAdES B-B and returns the signed PDF.
@@ -76,7 +96,11 @@ pub fn sign_pdf(pdf: &[u8], signer: &dyn CryptoSigner, options: &PadesOptions) -
     let when = now.format("%d/%m/%Y %H:%M:%S").to_string();
 
     let text = TextConfig {
-        lines: stamp_lines(signer.certificate_der(), options.reason.as_deref(), &when),
+        lines: stamp_lines(
+            Some(signer.certificate_der()),
+            options.reason.as_deref(),
+            &when,
+        ),
         ..Default::default()
     };
 
@@ -175,11 +199,46 @@ mod tests {
     #[test]
     fn the_stamp_carries_the_certificate_holder() {
         let signer = fake_signer();
-        let lines = stamp_lines(signer.certificate_der(), Some("test"), "01/01/2026 10:00:00");
+        let lines = stamp_lines(
+            Some(signer.certificate_der()),
+            Some("test"),
+            "01/01/2026 10:00:00",
+        );
         let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
 
         assert!(text.iter().any(|l| l.contains("MARIO ROSSI")), "{:?}", text);
         assert!(text.iter().any(|l| l.contains("Motivo: test")), "{:?}", text);
+    }
+
+    /// The preview draws the same lines as the real stamp, so what the user
+    /// places on screen has the shape of what lands in the PDF. If the two ever
+    /// diverge, the box on screen stops predicting the box in the document.
+    #[test]
+    fn the_preview_has_the_same_shape_as_the_real_stamp() {
+        let signer = fake_signer();
+        let real = stamp_lines(Some(signer.certificate_der()), Some("x"), "01/01/2026 10:00:00");
+        let preview = preview_stamp_lines(Some("x"));
+
+        // The tax code line is compared apart: the test certificate carries no
+        // codice fiscale, a real CIE always does, so only the preview has one
+        // here. Everything else must line up.
+        let shape = |ls: &[TextLine]| -> Vec<(Option<f32>, bool)> {
+            ls.iter()
+                .filter(|l| !l.text.starts_with("C.F."))
+                .map(|l| (l.font_size, l.bold))
+                .collect()
+        };
+        assert_eq!(shape(&real), shape(&preview), "stamp shape drifted");
+        assert_eq!(
+            preview.iter().filter(|l| l.text.starts_with("C.F.")).count(),
+            1,
+            "the preview must keep room for the tax code line"
+        );
+
+        // The unknown parts are placeholders, not a card holder's real name.
+        let text: Vec<&str> = preview.iter().map(|l| l.text.as_str()).collect();
+        assert!(text.iter().any(|l| l.contains("NOME DEL TITOLARE")), "{:?}", text);
+        assert!(text.iter().any(|l| l.contains("C.F. XXXX")), "{:?}", text);
     }
 
     /// The rect the caller asks for must land in the annotation's `/Rect`:

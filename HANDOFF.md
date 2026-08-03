@@ -28,7 +28,7 @@ Funziona e **verificato su carta reale** (Bit4Id, ATR `3B 8F 80 01 80 31 80 65
 - **PDF firmati in PAdES B-B** con riquadro visibile, verificati con `pdfsig`
 - **interfaccia grafica** `cie-gui`: anteprima del PDF e riquadro trascinabile
 
-42 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
+43 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
 
 ```bash
 cie info                 # dati leggibili senza PIN

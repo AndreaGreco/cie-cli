@@ -58,9 +58,14 @@ impl Document {
         }
     }
 
+    /// Size of the page as displayed, in PDF points, rotation included.
+    pub fn display_size(&self, page: usize) -> (f32, f32) {
+        self.pdf.pages()[page].render_dimensions()
+    }
+
     /// Aspect ratio of the page as displayed, rotation included.
     pub fn aspect_ratio(&self, page: usize) -> f32 {
-        let (w, h) = self.pdf.pages()[page].render_dimensions();
+        let (w, h) = self.display_size(page);
         if h > 0.0 { w / h } else { 1.0 }
     }
 
