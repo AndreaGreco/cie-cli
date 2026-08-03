@@ -96,6 +96,82 @@ impl Document {
     }
 }
 
+/// Smallest side the stamp may be shrunk to, as a fraction of the page.
+///
+/// Below this the mock-up stops being legible and, more to the point, a stamp
+/// you cannot grab again is a stamp you cannot fix.
+const MIN_SIDE: f32 = 0.03;
+
+/// Which grip on the stamp is being dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grab {
+    /// The body: the whole rectangle travels.
+    Body,
+    /// A corner, indexed 0 = top left, 1 = top right, 2 = bottom left,
+    /// 3 = bottom right.
+    Corner(usize),
+}
+
+/// Puts a stamp back in order: corners sorted, minimum size enforced, and the
+/// whole thing kept on the page.
+///
+/// Everything that touches the stamp goes through here, so no other code has
+/// to remember that a rectangle dragged upwards arrives inside out.
+pub fn normalise(stamp: [f32; 4]) -> [f32; 4] {
+    let [a, b, c, d] = stamp;
+    let (mut x0, mut x1) = (a.min(c), a.max(c));
+    let (mut y0, mut y1) = (b.min(d), b.max(d));
+
+    // Grow to the minimum away from the edge that has room, so a stamp pinned
+    // against the right margin grows leftwards instead of off the page.
+    if x1 - x0 < MIN_SIDE {
+        if x0 + MIN_SIDE <= 1.0 {
+            x1 = x0 + MIN_SIDE;
+        } else {
+            x0 = x1 - MIN_SIDE;
+        }
+    }
+    if y1 - y0 < MIN_SIDE {
+        if y0 + MIN_SIDE <= 1.0 {
+            y1 = y0 + MIN_SIDE;
+        } else {
+            y0 = y1 - MIN_SIDE;
+        }
+    }
+
+    [
+        x0.clamp(0.0, 1.0),
+        y0.clamp(0.0, 1.0),
+        x1.clamp(0.0, 1.0),
+        y1.clamp(0.0, 1.0),
+    ]
+}
+
+/// Slides the stamp by a fraction of the page, keeping its size and keeping it
+/// on the page.
+pub fn move_stamp(stamp: [f32; 4], dx: f32, dy: f32) -> [f32; 4] {
+    let [x0, y0, x1, y1] = normalise(stamp);
+    let (w, h) = (x1 - x0, y1 - y0);
+    // Clamping the origin against `1 - size` is what stops a drag past the edge
+    // from squashing the stamp instead of stopping it.
+    let nx = (x0 + dx).clamp(0.0, (1.0 - w).max(0.0));
+    let ny = (y0 + dy).clamp(0.0, (1.0 - h).max(0.0));
+    [nx, ny, nx + w, ny + h]
+}
+
+/// Drags one corner to a point, leaving the opposite corner where it is.
+pub fn resize_stamp(stamp: [f32; 4], corner: usize, to: (f32, f32)) -> [f32; 4] {
+    let [mut x0, mut y0, mut x1, mut y1] = normalise(stamp);
+    let (x, y) = (to.0.clamp(0.0, 1.0), to.1.clamp(0.0, 1.0));
+    match corner {
+        0 => (x0, y0) = (x, y),
+        1 => (x1, y0) = (x, y),
+        2 => (x0, y1) = (x, y),
+        _ => (x1, y1) = (x, y),
+    }
+    normalise([x0, y0, x1, y1])
+}
+
 /// Converts a rectangle given as fractions of the image (`0..1`, y **going
 /// down**) into the `[llx, lly, urx, ury]` in PDF points the annotation wants.
 pub fn to_pdf_rect(selection: [f32; 4], g: &Geometry) -> [f32; 4] {
@@ -185,6 +261,59 @@ mod tests {
             to_pdf_rect(sel, &geometry(Rotation::FlippedHorizontal)),
             [307.5, 441.0, 605.0, 862.0],
         );
+    }
+
+    #[test]
+    fn normalise_orders_the_corners_and_keeps_a_minimum() {
+        assert_eq!(normalise([0.6, 0.8, 0.2, 0.3]), [0.2, 0.3, 0.6, 0.8]);
+
+        // `0.5 + MIN_SIDE - 0.5` is not exactly MIN_SIDE in f32, and a few
+        // billionths of a page are nobody's problem.
+        let big_enough = |r: [f32; 4]| {
+            r[2] - r[0] >= MIN_SIDE - 1e-6 && r[3] - r[1] >= MIN_SIDE - 1e-6
+        };
+
+        // Collapsed to nothing: it must come back grabbable.
+        let r = normalise([0.5, 0.5, 0.5, 0.5]);
+        assert!(big_enough(r), "{r:?}");
+
+        // Collapsed against the far edge: it has to grow inwards, not off the
+        // page.
+        let r = normalise([1.0, 1.0, 1.0, 1.0]);
+        assert!(r[2] <= 1.0 && r[3] <= 1.0, "{r:?} runs off the page");
+        assert!(big_enough(r), "{r:?}");
+    }
+
+    #[test]
+    fn moving_keeps_the_size_and_stops_at_the_edge() {
+        let stamp = [0.1, 0.1, 0.3, 0.2];
+
+        let moved = move_stamp(stamp, 0.2, 0.1);
+        assert_eq!(moved, [0.3, 0.2, 0.5, 0.3]);
+
+        // Shoved well past the right and bottom edges: it stops flush, same
+        // size. Squashing it here would be the easy bug.
+        let shoved = move_stamp(stamp, 5.0, 5.0);
+        assert!((shoved[2] - 1.0).abs() < 1e-6 && (shoved[3] - 1.0).abs() < 1e-6, "{shoved:?}");
+        assert!((shoved[2] - shoved[0] - 0.2).abs() < 1e-6, "width changed: {shoved:?}");
+        assert!((shoved[3] - shoved[1] - 0.1).abs() < 1e-6, "height changed: {shoved:?}");
+    }
+
+    #[test]
+    fn resizing_moves_one_corner_and_pins_the_other() {
+        let stamp = [0.2, 0.2, 0.8, 0.6];
+
+        // Top left in: the bottom right must not budge.
+        let r = resize_stamp(stamp, 0, (0.4, 0.3));
+        assert_eq!(r, [0.4, 0.3, 0.8, 0.6]);
+
+        // Bottom right out: the top left must not budge.
+        let r = resize_stamp(stamp, 3, (0.9, 0.7));
+        assert_eq!(r, [0.2, 0.2, 0.9, 0.7]);
+
+        // Dragged past the opposite corner: it flips instead of inverting.
+        let r = resize_stamp(stamp, 3, (0.1, 0.1));
+        assert!(r[0] < r[2] && r[1] < r[3], "inside out: {r:?}");
     }
 
     /// A rectangle dragged bottom-up arrives with its corners swapped: the

@@ -99,7 +99,8 @@ cargo run --release -p cie-gui
 
 Un wizard di cinque passi — quattro se la firma non è PAdES, perché il riquadro
 esiste solo lì. Il PDF si vede a schermo pagina per pagina e il riquadro della
-firma si sceglie **trascinandolo**, invece di subire la posizione cablata di
+firma si trascina per spostarlo e si prende per gli angoli per ridimensionarlo,
+al posto della posizione cablata di
 `cie sign-pdf`. Il nome del file firmato è quello proposto dalla CLI, e si può
 cambiare con un salva-con-nome.
 
@@ -158,7 +159,7 @@ il livello carta puro, come serve al futuro modulo PKCS#11.
 ## Sviluppo
 
 ```bash
-cargo test      # 43 test, nessuno richiede la carta
+cargo test      # 46 test, nessuno richiede la carta
 cargo clippy
 ```
 

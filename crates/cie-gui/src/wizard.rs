@@ -9,7 +9,7 @@ use cie_firma::PadesOptions;
 
 use crate::job::{self, Kind, Message, Request};
 use crate::keyring;
-use crate::preview::{to_pdf_rect, Document};
+use crate::preview::{move_stamp, resize_stamp, to_pdf_rect, Document, Grab};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
@@ -50,7 +50,7 @@ pub struct App {
     /// Fractions of the image (`0..1`, y downwards). It only becomes a `/Rect`
     /// at signing time, when the page geometry is known.
     stamp: [f32; 4],
-    drag_start: Option<egui::Pos2>,
+    grab: Option<Grab>,
     texture: Option<(usize, f32, egui::TextureHandle)>,
     reason: String,
     certify: Option<u8>,
@@ -84,7 +84,7 @@ impl App {
             kind: Kind::Pades,
             page: 0,
             stamp: DEFAULT_STAMP,
-            drag_start: None,
+            grab: None,
             texture: None,
             reason: String::new(),
             certify: None,
@@ -298,6 +298,9 @@ impl App {
 
 const STAMP_BLUE: egui::Color32 = egui::Color32::from_rgb(60, 120, 220);
 
+/// Side of the corner grips, in pixels.
+const GRIP_PX: f32 = 7.0;
+
 /// Draws inside the stamp rectangle a mock-up of what the signature will look
 /// like, at the same scale it will have in the PDF.
 ///
@@ -488,10 +491,18 @@ impl App {
             }
         });
 
-        ui.weak(
-            "Trascina sull'anteprima per spostare il riquadro. Il testo è un facsimile: \
-             nome e codice fiscale li legge dalla carta al momento della firma.",
-        );
+        ui.horizontal(|ui| {
+            ui.weak(
+                "Trascina il riquadro per spostarlo, gli angoli per ridimensionarlo. \
+                 Il testo è un facsimile: nome e codice fiscale li legge dalla carta \
+                 al momento della firma.",
+            );
+            // Drag-to-draw is gone, so this is the only way back to the
+            // proposed position.
+            if ui.small_button("Ripristina").clicked() {
+                self.stamp = DEFAULT_STAMP;
+            }
+        });
         ui.add_space(6.0);
 
         self.draw_preview(ui);
@@ -533,46 +544,92 @@ impl App {
             egui::Image::new(handle).paint_at(ui, rect);
         }
 
-        // From the screen to fractions of the image, and back.
-        let fraction = |p: egui::Pos2| {
-            egui::pos2(
-                ((p.x - rect.min.x) / rect.width()).clamp(0.0, 1.0),
-                ((p.y - rect.min.y) / rect.height()).clamp(0.0, 1.0),
+        // Screen coordinates of the stamp, and its four corner grips.
+        let on_screen = |s: [f32; 4]| {
+            egui::Rect::from_min_max(
+                rect.min + egui::vec2(s[0] * rect.width(), s[1] * rect.height()),
+                rect.min + egui::vec2(s[2] * rect.width(), s[3] * rect.height()),
             )
+        };
+        let box_rect = on_screen(self.stamp);
+        let corners = [
+            box_rect.left_top(),
+            box_rect.right_top(),
+            box_rect.left_bottom(),
+            box_rect.right_bottom(),
+        ];
+
+        // What is under the pointer. Corners win over the body: they sit on top
+        // of it, and a grip you cannot hit is no grip.
+        let what_is_under = |p: egui::Pos2| -> Option<Grab> {
+            corners
+                .iter()
+                .position(|c| c.distance(p) <= GRIP_PX * 1.6)
+                .map(Grab::Corner)
+                .or_else(|| box_rect.contains(p).then_some(Grab::Body))
         };
 
         if response.drag_started()
             && let Some(p) = response.interact_pointer_pos()
         {
-            self.drag_start = Some(fraction(p));
-        }
-        if let (Some(start), Some(p)) = (self.drag_start, response.interact_pointer_pos()) {
-            let end = fraction(p);
-            self.stamp = [start.x, start.y, end.x, end.y];
+            self.grab = what_is_under(p);
         }
         if response.drag_stopped() {
-            self.drag_start = None;
-            // A click with no drag would leave a zero-area rectangle, which no
-            // reader draws: fall back to the proposed one.
-            let [x0, y0, x1, y1] = self.stamp;
-            if (x1 - x0).abs() < 0.02 || (y1 - y0).abs() < 0.02 {
-                self.stamp = DEFAULT_STAMP;
-            }
+            self.grab = None;
         }
 
-        let [x0, y0, x1, y1] = self.stamp;
-        let on_screen = egui::Rect::from_two_pos(
-            rect.min + egui::vec2(x0 * rect.width(), y0 * rect.height()),
-            rect.min + egui::vec2(x1 * rect.width(), y1 * rect.height()),
-        );
+        match self.grab {
+            Some(Grab::Body) => {
+                let d = response.drag_delta();
+                self.stamp = move_stamp(self.stamp, d.x / rect.width(), d.y / rect.height());
+            }
+            Some(Grab::Corner(i)) => {
+                if let Some(p) = response.interact_pointer_pos() {
+                    self.stamp = resize_stamp(
+                        self.stamp,
+                        i,
+                        (
+                            (p.x - rect.min.x) / rect.width(),
+                            (p.y - rect.min.y) / rect.height(),
+                        ),
+                    );
+                }
+            }
+            None => {}
+        }
+
+        // Tell the pointer what it can do here before it tries.
+        if let Some(p) = response.hover_pos() {
+            ui.ctx().set_cursor_icon(match what_is_under(p) {
+                Some(Grab::Corner(0)) | Some(Grab::Corner(3)) => egui::CursorIcon::ResizeNwSe,
+                Some(Grab::Corner(_)) => egui::CursorIcon::ResizeNeSw,
+                Some(Grab::Body) => egui::CursorIcon::Grab,
+                None => egui::CursorIcon::Default,
+            });
+        }
+
+        let box_rect = on_screen(self.stamp);
         let painter = ui.painter_at(rect);
-        painter.rect_filled(on_screen, 2.0, egui::Color32::from_white_alpha(235));
+        painter.rect_filled(box_rect, 2.0, egui::Color32::from_white_alpha(235));
         painter.rect_stroke(
-            on_screen,
+            box_rect,
             2.0,
             egui::Stroke::new(1.5, STAMP_BLUE),
             egui::StrokeKind::Inside,
         );
+        for c in [
+            box_rect.left_top(),
+            box_rect.right_top(),
+            box_rect.left_bottom(),
+            box_rect.right_bottom(),
+        ] {
+            painter.rect_filled(
+                egui::Rect::from_center_size(c, egui::Vec2::splat(GRIP_PX)),
+                1.0,
+                STAMP_BLUE,
+            );
+        }
+        let on_screen = box_rect;
 
         // One point of the page is this many pixels on screen: the mock-up has
         // to shrink and grow with the preview, or it stops predicting anything.
