@@ -1,203 +1,123 @@
 # CIE-CLI
 
-CLI e libreria Rust per la **Carta d'Identità Elettronica (CIE)** italiana.
+CLI e libreria Rust per la **Carta d'Identità Elettronica (CIE)** italiana, che
+parlano alla carta **direttamente in PC/SC**.
 
-## Architettura
+Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di
+registrazione, niente dati scritti su disco.
 
-Il progetto è strutturato come workspace Rust con due crate:
+## Perché
 
-```
-cie-cli/
-├── Cargo.toml              # Workspace root
-├── crates/
-│   ├── cie-lib/            # Libreria core
-│   │   └── src/
-│   │       ├── lib.rs      # Entry point libreria
-│   │       ├── cie.rs      # Interfaccia principale CIE
-│   │       ├── pkcs11.rs   # Wrapper PKCS#11
-│   │       ├── config.rs   # Configurazione
-│   │       └── error.rs    # Gestione errori
-│   └── cie-cli/            # CLI
-│       └── src/
-│           ├── main.rs     # Entry point CLI
-│           └── commands/   # Comandi
-```
+Il middleware ufficiale (`cie-middleware-linux`) per funzionare pretende una
+registrazione preventiva della carta tramite un'applicazione Java, che salva in
+una cache su disco metà del PIN (cifrata con una chiave derivabile da chiunque
+abbia la carta, senza conoscere il PIN). Da lì in poi ti chiede solo le altre 4
+cifre.
 
-### cie-lib
+Qui il PIN lo si digita per intero, quando serve: la cache non risolveva un
+problema tecnico, e nel farlo dimezzava lo spazio di ricerca di una credenziale.
 
-Libreria core che può essere usata da:
-- **CLI** (questo progetto)
-- **GUI** (futura implementazione)
-- **Server API** (futura implementazione)
+## Stato
 
-### cie-cli
+Funzionante e verificato su carta reale (Bit4Id):
 
-Interfaccia a riga di comando per interagire con la CIE.
+- [x] Rilevamento del tipo di carta dall'ATR e selezione dell'applicazione
+- [x] Secure Messaging completo: Diffie-Hellman, DAPP (autenticazione **mutua**,
+      con verifica della firma del chip), 3DES-CBC, Retail MAC verificato in
+      entrambe le direzioni
+- [x] Verifica del PIN nel canale sicuro
+- [x] Lettura dei file protetti (seriale, certificato, dati del titolare)
+- [ ] Firma grezza con la chiave on-card (`MSE SET` + `INTERNAL AUTHENTICATE`)
+- [ ] Modulo PKCS#11 (`cdylib`) per Firefox e client SPID/CieID
+
+Il certificato sulla carta è **di autenticazione**, non di firma qualificata
+(policy `1.3.76.47.4`, EKU `TLS Web Client Authentication`, Key Usage senza
+`nonRepudiation`). Le firme prodotte con questa chiave non sono firme digitali
+qualificate ai sensi eIDAS.
 
 ## Requisiti
 
-### Sistema
-
-- Linux (testato su Ubuntu/Debian)
-- Lettore di smart card compatibile PC/SC
-- CIE 3.0 (Carta d'Identità Elettronica)
-
-### Software
-
-1. **pcscd** - Daemon PC/SC per smart card
-   ```bash
-   sudo apt install pcscd pcsc-tools
-   sudo systemctl enable pcscd
-   sudo systemctl start pcscd
-   ```
-
-2. **CIE Middleware** - Libreria PKCS#11 per la CIE
-   ```bash
-   # Scarica e installa da:
-   # https://github.com/italia/cie-middleware-linux
-   ```
-
-## Installazione
+- Linux con lettore di smart card PC/SC e una CIE 3.0
+- `pcscd` in esecuzione
 
 ```bash
-# Clona il repository
-git clone https://github.com/agreco/cie-cli.git
-cd cie-cli
+sudo pacman -S pcsclite ccid        # Arch
+sudo apt install pcscd pcsc-tools   # Debian/Ubuntu
+sudo systemctl enable --now pcscd
+```
 
-# Compila
+Il middleware CIE **non** serve.
+
+## Uso
+
+```bash
 cargo build --release
 
-# Installa (opzionale)
-cargo install --path crates/cie-cli
+cie info          # dati leggibili senza PIN
+cie pcsc-test     # diagnostica APDU
+cie auth          # canale sicuro + verifica PIN + dati protetti
+
+cie -vv auth      # con ogni APDU in TX/RX
 ```
 
-## Utilizzo
+### Il PIN
 
-### Comandi disponibili
+In ordine di precedenza: argomento `--pin`, portachiavi di sistema, prompt a
+video. Il modo consigliato è il portachiavi, così il PIN non finisce né nella
+history della shell né in `ps`:
 
 ```bash
-# Lista i lettori di smart card
-cie readers
-
-# Mostra info sulla CIE inserita
-cie info
-
-# Lista i certificati
-cie cert list
-
-# Esporta un certificato
-cie cert export -i "DS" -o certificato.der
-
-# Firma un documento
-cie sign -i documento.pdf -o documento.pdf.sig
-
-# Verifica una firma (non ancora implementato)
-cie verify -i documento.pdf -s documento.pdf.sig
+secret-tool store --label='CIE PIN' service cie
 ```
 
-### Opzioni globali
+Servono tutte e 8 le cifre.
 
-```bash
-# Verbosità
-cie -v info      # INFO
-cie -vv info     # DEBUG  
-cie -vvv info    # TRACE
+## Architettura
 
-# Percorso libreria PKCS#11 custom
-cie --pkcs11-lib /path/to/libcie-pkcs11.so readers
-
-# Oppure via variabile d'ambiente
-export CIE_PKCS11_LIB=/path/to/libcie-pkcs11.so
-cie readers
 ```
-
-## Utilizzo come libreria
-
-```rust
-use cie_lib::{Cie, CieConfig, SigningMechanism};
-use anyhow::Result;
-
-fn main() -> Result<()> {
-    // Inizializza con auto-detect
-    let cie = Cie::new()?;
-    
-    // Oppure con percorso specifico
-    let cie = Cie::with_config(
-        CieConfig::with_pkcs11_path("/usr/lib/libcie-pkcs11.so")
-    )?;
-    
-    // Lista lettori
-    for reader in cie.list_readers()? {
-        println!("{}", reader);
-    }
-    
-    // Trova CIE e firma
-    let reader = cie.find_cie()?;
-    let session = cie.login(&reader, "12345678")?;
-    
-    let data = b"Dati da firmare";
-    let signature = cie.sign(&session, data, SigningMechanism::Sha256RsaPkcs)?;
-    
-    session.logout()?;
-    Ok(())
-}
+crates/
+├── cie-lib/                     libreria core
+│   └── src/
+│       ├── pcsc_direct.rs       trasporto PC/SC, APDU grezze
+│       ├── apdu.rs              tipo carta da ATR, selezione AID, lettura file
+│       ├── secure_messaging.rs  DH, DAPP, cifratura e MAC del canale
+│       ├── crypto.rs            3DES-CBC, Retail MAC, derivazione chiavi
+│       ├── asn1.rs              parser BER-TLV (tag fino a 4 byte)
+│       ├── titolare.rs          estrazione dati dal certificato X.509
+│       └── error.rs
+└── cie-cli/                     binario `cie`
 ```
-
-## Come funziona
-
-### PKCS#11
-
-La libreria utilizza lo standard **PKCS#11** per comunicare con la CIE. Il middleware CIE (`libcie-pkcs11.so`) espone un'interfaccia PKCS#11 standard che permette di:
-
-- Enumerare i lettori (slot)
-- Rilevare la presenza della carta (token)
-- Autenticarsi con il PIN
-- Leggere certificati
-- Firmare dati con la chiave privata
-
-### Binding Rust
-
-Non è necessario un submodule o binding C/C++ diretto. Usiamo il crate [`cryptoki`](https://crates.io/crates/cryptoki) che:
-
-1. Carica dinamicamente la libreria `.so` a runtime
-2. Espone un'interfaccia Rust sicura e idiomatica
-3. Gestisce automaticamente la memoria e gli errori
 
 ## Sviluppo
 
 ```bash
-# Test
-cargo test
-
-# Clippy
+cargo test      # 22 test, nessuno richiede la carta
 cargo clippy
-
-# Formato
-cargo fmt
-
-# Build release
-cargo build --release
 ```
 
-## Roadmap
+I test coprono la parte crittografica con vettori calcolati indipendentemente.
+In particolare il Retail MAC è ancorato al **vettore pubblicato ICAO Doc 9303**
+(BAC), che usa lo stesso ISO 9797-1 Algorithm 3 del Secure Messaging CIE: se
+quel test passa, il MAC è conforme allo standard e non solo a sé stesso.
 
-- [x] Struttura workspace
-- [x] Wrapper PKCS#11
-- [x] CLI base
-- [x] Lista lettori
-- [x] Info CIE
-- [x] Firma documenti
-- [ ] Verifica firme
-- [ ] Firma CAdES/PAdES
-- [ ] Autenticazione
-- [ ] GUI (Tauri/egui)
-
-## Licenza
-
-MIT
+C'è anche un vettore end-to-end di una `VERIFY PIN` completa in Secure
+Messaging, calcolato con un riferimento esterno: protegge dall'errore più
+insidioso del protocollo, cioè paddare i TLV singolarmente invece di applicare
+un solo ISO-padding finale.
 
 ## Riferimenti
 
-- [cie-middleware-linux](https://github.com/italia/cie-middleware-linux) - Middleware ufficiale CIE
-- [cryptoki](https://crates.io/crates/cryptoki) - Binding PKCS#11 per Rust
+- [cie-middleware-linux](https://github.com/italia/cie-middleware-linux) —
+  middleware ufficiale, BSD-3-Clause. Le sequenze APDU, i parametri di
+  protocollo e le costanti della coppia di chiavi DAPP derivano dal suo
+  sorgente, in particolare `cie-pkcs11/CSP/IAS.cpp`.
+- [ICAO Doc 9303](https://www.icao.int/publications/pages/publication.aspx?docnum=9303) —
+  Machine Readable Travel Documents, per il Secure Messaging
 - [Specifiche CIE 3.0](https://www.cartaidentita.interno.gov.it/)
+
+## Licenza
+
+MIT.
+
+Nota: il middleware da cui derivano le sequenze di protocollo è BSD-3-Clause,
+che richiede il mantenimento della nota di copyright per le porzioni derivate.

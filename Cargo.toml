@@ -20,18 +20,11 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# PKCS#11
-cryptoki = "0.10"
-
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 
-# Async (per future estensioni)
-tokio = { version = "1", features = ["full"] }
-
-# Serialization
+# Serialization (dati del titolare)
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 # Internal crates
 cie-lib = { path = "crates/cie-lib" }
