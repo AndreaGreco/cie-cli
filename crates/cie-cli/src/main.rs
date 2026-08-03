@@ -2,7 +2,7 @@
 
 mod commands;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -54,6 +54,54 @@ enum Commands {
         #[arg(short, long, value_name = "FILE")]
         output: Option<String>,
     },
+
+    /// Firma un file qualsiasi in CAdES: contenuto e firma in un unico .p7m
+    SignP7m {
+        /// File da firmare
+        file: String,
+
+        /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
+        #[arg(short, long)]
+        pin: Option<String>,
+
+        /// Dove scrivere la busta (default: <file>.p7m)
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<String>,
+    },
+
+    /// Firma un PDF in PAdES: la firma finisce dentro il file, non a fianco
+    SignPdf {
+        /// PDF da firmare
+        file: String,
+
+        /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
+        #[arg(short, long)]
+        pin: Option<String>,
+
+        /// Dove scrivere il PDF firmato (default: <file>-firmato.pdf)
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<String>,
+
+        /// Pagina su cui disegnare il riquadro (da 1)
+        #[arg(long, default_value_t = 1, value_name = "N")]
+        pagina: u32,
+
+        /// Motivo della firma, mostrato nel riquadro
+        #[arg(long)]
+        motivo: Option<String>,
+
+        /// Firma di certificazione: il documento risulta tuo e dichiari cosa
+        /// resta lecito modificare. 1 = niente, 2 = moduli e altre firme
+        /// (default), 3 = anche annotazioni. Ammessa solo sulla prima firma.
+        #[arg(
+            long,
+            value_name = "LIVELLO",
+            num_args = 0..=1,
+            default_missing_value = "2",
+            value_parser = clap::value_parser!(u8).range(1..=3),
+        )]
+        certifica: Option<u8>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -80,5 +128,11 @@ fn main() -> Result<()> {
         Commands::PcscTest => commands::pcsc_test::execute(),
         Commands::Auth { pin, dump_cert } => commands::auth::execute(pin, dump_cert),
         Commands::Sign { file, pin, output } => commands::sign::execute(file, pin, output),
+        Commands::SignP7m { file, pin, output } => commands::sign_p7m::execute(file, pin, output),
+        Commands::SignPdf { file, pin, output, pagina, motivo, certifica } => {
+            // Le pagine si contano da 1 per chi legge, da 0 per il PDF.
+            let indice = pagina.checked_sub(1).context("le pagine si contano da 1")?;
+            commands::sign_pdf::execute(file, pin, output, indice, motivo, certifica)
+        }
     }
 }

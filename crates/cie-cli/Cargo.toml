@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 cie-lib.workspace = true
+cie-firma.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

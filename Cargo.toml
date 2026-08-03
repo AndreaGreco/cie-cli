@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/cie-lib",
+    "crates/cie-firma",
     "crates/cie-cli",
 ]
 
@@ -28,3 +29,10 @@ serde = { version = "1", features = ["derive"] }
 
 # Internal crates
 cie-lib = { path = "crates/cie-lib" }
+cie-firma = { path = "crates/cie-firma" }
+
+# Fino a che il lavoro non e' a monte: /M nel dizionario di firma, tsp-ltv
+# dietro le sue feature, DocMDP implementato e il CAdES standalone (.p7m).
+# Fork: github.com/AttilioGreco/underskrift, branch fix/pades-conformance.
+[patch.crates-io]
+underskrift = { path = "../underskrift" }

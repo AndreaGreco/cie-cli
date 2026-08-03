@@ -25,12 +25,16 @@ Funziona e **verificato su carta reale** (Bit4Id, ATR `3B 8F 80 01 80 31 80 65
   indipendente con OpenSSL (positiva sul file originale, negativa dopo
   l'alterazione di un byte)
 
-23 test, nessuno richiede la carta. Zero warning clippy.
+- **PDF firmati in PAdES B-B** con riquadro visibile, verificati con `pdfsig`
+
+25 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
 
 ```bash
 cie info                 # dati leggibili senza PIN
 cie auth                 # canale + PIN + dati protetti
 cie sign <file>          # firma detached (.sig) + certificato (.cer)
+cie sign-p7m <file>      # CAdES enveloping: contenuto + firma in <file>.p7m
+cie sign-pdf <f.pdf>     # PAdES, firma dentro il PDF
 cie -vv auth             # ogni APDU in TX/RX
 ```
 
@@ -39,53 +43,125 @@ Servono tutte e 8 le cifre.
 
 ---
 
-## Il prossimo passo
+## PAdES: fatto
 
-L'obiettivo dichiarato è **riprodurre ciò che fa il middleware ufficiale**, con
-i suoi limiti. Quello che l'app del Ministero produce e noi ancora no:
+La domanda che bloccava tutto era: **le librerie Rust accettano un firmatario
+esterno?** Sì. `cie sign-pdf` produce PDF firmati in **PAdES B-B** con riquadro
+visibile, e la chiave non lascia mai il chip.
 
-| Cosa | Formato | Nel loro SDK |
+Libreria scelta: **`underskrift 0.1.4`** (BSD-2,
+https://github.com/kushaldas/underskrift). Espone `CryptoSigner`, un tratto di
+cinque metodi di cui uno è `sign_hash(&self, hash) -> Vec<u8>`: gli passiamo
+`FirmatarioCie`, lui ci consegna il digest e si riprende i 256 byte. Lo stesso
+schema di HSM e firma remota.
+
+Scartata `ades-rs 0.2.0`: ha lo stesso identico tratto (`Signer::sign_digest`),
+ma il suo PAdES è un guscio — annotazione widget 0×0, nessun riquadro visibile,
+niente `reason`/`location`, si ferma a B-T. 614 righe contro 26.000, e 64
+download totali. Resta il candidato per il CAdES, se un giorno servirà.
+
+Verificato con `pdfsig` di poppler su un PDF prodotto dal percorso di
+produzione: `Signature is Valid`, `ETSI.CAdES.detached`, `Total document
+signed`. Gli attributi firmati sono quelli che PAdES pretende — `contentType`,
+`messageDigest`, `signingCertificateV2`.
+
+### Il fork di underskrift
+
+Sta in `../underskrift` (github.com/AttilioGreco/underskrift, branch
+`fix/pades-conformance`), agganciato da `[patch.crates-io]` nel `Cargo.toml` di
+workspace. **Senza quella cartella il progetto non compila.** Tutto il lavoro è
+materiale da PR upstream. `patches/` conserva la vecchia forma a diff contro la
+0.1.4, ormai superata dai commit del fork: si può buttare.
+
+Le tre patch nate qui, ora commit nel fork:
+
+1. **`tsp-ltv` senza `default-features = false`.** underskrift dichiara la
+   dipendenza senza disattivarne i default, quindi reqwest + rustls + hyper +
+   tokio entrano nel binario anche con `default-features = false` da parte
+   nostra e anche se non si chiama mai una TSA. Aggiunto il flag e l'inoltro
+   `tsp-ltv/tsp`. Misurato: **311 crate → 200**.
+
+2. **`/M` mai scritto nel dizionario di firma.** PAdES vieta l'attributo CMS
+   `signingTime` (ETSI EN 319 142-1), quindi la data va nel `/M` del dizionario
+   — che underskrift legge nel suo inspector ma non scrive mai. Risultato: ogni
+   lettore mostrava **1 gennaio 1970**. Otto righe in `src/signer.rs`.
+
+3. **`certify` dichiarato e mai implementato.** Il campo esisteva in
+   `SigningOptions` e non veniva mai letto; `doc_mdp.rs` erano 16 righe di enum
+   inutilizzato. Chi lo impostava otteneva in silenzio una normale firma di
+   approvazione — l'unico caso in cui l'API mentiva. Ora `--certifica [1|2|3]`
+   produce `/Reference` con la trasformazione DocMDP nel dizionario di firma e
+   `/Perms << /DocMDP … >>` nel catalogo, e rifiuta un documento già
+   certificato. È la firma d'autore, quella col nastrino blu.
+
+Nota sulla prima patch: al primo tentativo inoltrava solo `tsp-ltv/tsp` e non
+`tsp-ltv/ltv`. Compilava con le nostre feature e falliva con quelle di default.
+**Vanno provate entrambe le combinazioni**, sempre.
+
+Il fork ha poi aggiunto il **CAdES standalone** (`cades::sign_attached`, firme
+parallele, controfirme, `verify_enveloped`): è quello che alimenta
+`cie sign-p7m`.
+
+Due cose emerse integrandolo:
+
+- `SigningOptions::doc_mdp_permissions` ora si chiama `certify_permissions`.
+- **La feature `verify` non compila da sola**: `cms_verify.rs` usa
+  `crate::tsp::token` per i timestamp, che esiste solo con la feature `tsp` — la
+  quale riporta dentro reqwest e vanifica la patch 1. Stessa classe di bug della
+  nota qui sopra. Per questo `cie` non usa il verificatore di underskrift e
+  controlla le buste con OpenSSL nei test. Sistemarla vuol dire mettere
+  `#[cfg(feature = "tsp")]` su `verify_timestamp_token`, `verify_doc_timestamp`
+  e sui loro punti di chiamata in `verify/mod.rs`.
+
+### Cosa è rimasto deliberatamente fuori
+
+| Cosa | Perché |
+|---|---|
+| marca temporale (B-T) | è l'unica feature che riporta dentro uno stack HTTP; `cie` per ora parla solo con la carta |
+| LTV, B-LT, B-LTA | servono le CA del Ministero, che la carta non espone |
+| verifica/validazione | non è il nostro mestiere, per quello c'è `pdfsig` o il DSS |
+
+Senza marca temporale la firma **invecchia**: quando il certificato CIE scade
+non è più verificabile. È una scelta consapevole, non una svista.
+
+### Confronto strutturale con il middleware
+
+Fatto leggendo il loro sorgente, non a occhio. Il percorso è
+`disigonsdk.cpp:sign_pdf` → `CSignatureGenerator::Generate(..., bDetached=true)`
+→ `CSignerInfoGenerator::getSignedAttributes(attrs, false, !bDetached)`.
+
+| | middleware | noi |
 |---|---|---|
-| PDF firmato + riquadro grafico visibile | **PAdES** | `PdfSignatureGenerator` |
-| `documento.pdf.p7m` | **CAdES** | `SignedDataGeneratorEx` |
-| marca temporale | livello T / `.m7m` | `TSAClient`, `M7MParser` |
+| SubFilter | `ETSI.CAdES.detached` (`CIESign.cpp:65`) | uguale |
+| digest | SHA-256 | uguale |
+| `signatureAlgorithm` | `sha256WithRSAEncryption` | uguale |
+| identificatore del firmatario | `IssuerAndSerialNumber` | uguale |
+| `contentType` | `id-data` | uguale |
+| `messageDigest` | sì | uguale |
+| `signingCertificateV2` | SHA-256 + `IssuerSerial` | uguale |
+| `signingTime` nel CMS | **no**, perché detached | uguale |
+| data della firma | `/M` nel dizionario (`SetSignatureDate`) | uguale, dopo la patch |
+| certificazione DocMDP | no | uguale |
+| byte riservati a `/Contents` | 10000 | 8192 (il nostro CMS ne usa 1361) |
+| `CMSAlgorithmProtection` | **no** | **sì** |
 
-Oggi produciamo solo la firma RSA grezza: il mattone più interno di tutti e tre.
-Manca lo strato contenitore.
+L'unica differenza strutturale è l'ultima riga: underskrift aggiunge sempre
+`id-aa-CMSAlgorithmProtection` (RFC 6211, lega insieme gli algoritmi per
+impedire una sostituzione). È un attributo *firmato* e standard, e un
+validatore che non lo conosce lo ignora — ma è l'unica cosa che ci distingue.
+**Se l'app del Ministero rifiuta il PDF, è la prima cosa da togliere**:
+underskrift lo scrive senza condizioni (`cms/builder.rs:516`), quindi
+servirebbe una terza patch.
 
-### La domanda che decide la fattibilità
+Nota: `/Contents` a 8192 non è stato allineato ai loro 10000 perché il margine
+è già 6×. Se dovesse non bastare, underskrift fallisce in modo pulito
+(`SignatureTooLarge`) — non tronca — ma lo fa *dopo* che la carta ha firmato,
+quindi il tentativo di PIN è consumato.
 
-**Le librerie Rust accettano un firmatario esterno?**
+### Il test che scioglie il dubbio, ora si può fare
 
-La chiave privata è sul chip e non è estraibile: la firma la deve fare la carta.
-Serve quindi una libreria che supporti la firma in due fasi — calcola il digest
-da firmare, riceve la firma da fuori, la incorpora. È lo stesso schema usato per
-HSM e firma remota, quindi una libreria seria dovrebbe prevederlo, ma **va
-verificato prima di sceglierla**. È il primo lavoro della prossima sessione.
-
-Candidati (tutti giovani: `esistono` ≠ `collaudati`):
-
-- **`underskrift 0.1.4`** (BSD-2) — PAdES da B-B a B-LTA, LTV, TSP, firme
-  visibili e invisibili, verifica. È il più vicino a ciò che serve.
-  https://github.com/kushaldas/underskrift
-- **`ades-rs 0.2.0`** (MIT/Apache) — CAdES, PAdES, XAdES, JAdES per eIDAS 2.0.
-  https://github.com/lfern/eidas-rs
-- **`cms 0.3.0-pre.2`** (RustCrypto) — CMS/PKCS#7 puro. Stessa famiglia di `der`
-  e `x509-cert` che **già usiamo**: se serve costruire CAdES a mano, si parte da qui.
-- `lopdf 0.44` — manipolazione PDF, se servisse scendere di livello.
-
-Cosa cercare nelle loro API: un tratto tipo `Signer`, un callback di firma, o un
-flusso `prepare() -> digest` / `embed(signature)`. Se una libreria vuole per
-forza una `RsaPrivateKey`, non ci serve.
-
-### Il pezzo che abbiamo già
-
-`SecureMessaging::sign_sha256(&card, &hash) -> Vec<u8>` restituisce 256 byte di
-firma PKCS#1 v1.5. È esattamente ciò che un firmatario esterno deve fornire.
-
-Se una libreria chiede un digest diverso da SHA-256 o un padding PSS, va estesa
-`sign_sha256`: la carta supporta anche SHA-1 (`CKM_SHA1_RSA_PKCS` nel C++), ma
-non conviene usarlo.
+Firmare un PDF con `cie sign-pdf` e darlo in pasto all'app del Ministero.
+Vedi più sotto la questione del valore legale: è quello il criterio.
 
 ---
 
@@ -95,6 +171,12 @@ Resta la strada più corta per far firmare a LibreOffice e autenticare Firefox
 senza scrivere una riga di formato.
 
 Nuovo crate `crates/cie-pkcs11/` con `crate-type = ["cdylib"]` → `libcie_pkcs11.so`.
+
+È il motivo per cui **underskrift sta in `cie-cli` e non in `cie-lib`**: la
+`cdylib` dipende da `cie-lib`, e non ha nessun bisogno di sapere cosa sia un PDF.
+Se la libreria PAdES finisse nel livello carta, la `.so` si porterebbe dietro
+lopdf e un parser di font per esporre `C_Sign`. `cie-lib` resta il livello carta
+puro; il `FirmatarioCie` che implementa `CryptoSigner` sono 40 righe nel comando.
 
 Cose da sapere prima di iniziare:
 

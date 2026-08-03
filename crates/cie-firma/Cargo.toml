@@ -1,0 +1,29 @@
+[package]
+name = "cie-firma"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Firmatario on-card della CIE e contenitori di firma (PAdES, CAdES, detached)"
+
+[dependencies]
+cie-lib.workspace = true
+anyhow.workspace = true
+
+# PAdES e CAdES. Niente feature di rete: senza `tsp` non c'e' nessun client HTTP
+# nel percorso di firma, e questo livello continua a parlare solo con la carta.
+underskrift = { version = "0.1.4", default-features = false, features = ["visual", "blocking"] }
+tokio = { version = "1", features = ["rt"] }
+chrono = "0.4"
+
+# Solo per i test: un firmatario software che imita il contratto della carta
+# (riceve un DigestInfo, restituisce PKCS#1 v1.5) cosi' il percorso di firma
+# si puo' esercitare senza CIE.
+[dev-dependencies]
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
+rand = "0.8"
+x509-cert = { version = "0.2", features = ["builder"] }
+der = "0.7"
+spki = "0.7"
+signature = "2"

@@ -1,6 +1,9 @@
 //! Moduli dei comandi CLI
 
 use anyhow::Result;
+use cie_firma::{FirmatarioCie, Passo};
+use cie_lib::PcscContext;
+use std::cell::Cell;
 use std::io::{self, Write};
 use std::process::Command;
 
@@ -8,6 +11,41 @@ pub mod auth;
 pub mod info;
 pub mod pcsc_test;
 pub mod sign;
+pub mod sign_p7m;
+pub mod sign_pdf;
+
+/// Apre la carta stampando l'avanzamento, con la spunta a fine riga.
+///
+/// Il PIN si risolve *prima* di toccare il lettore: se manca, tanto vale
+/// scoprirlo senza aver gia' aperto un canale sicuro.
+pub fn apri_carta(ctx: &PcscContext, pin: Option<String>) -> Result<FirmatarioCie> {
+    let pin = ottieni_pin(pin)?;
+
+    // La riga precedente si chiude quando arriva il passo successivo: il
+    // callback sa cosa sta per iniziare, non cosa e' finito.
+    let aperta = Cell::new(false);
+    let stampa = |p: Passo| {
+        if aperta.get() {
+            println!("✓");
+        }
+        let testo = match p {
+            Passo::Connessione => "Connessione alla carta...",
+            Passo::CanaleSicuro => "Apertura del canale sicuro...",
+            Passo::Pin => "Verifica del PIN...",
+            Passo::Certificato => "Lettura del certificato...",
+        };
+        print!("  {} ", testo);
+        let _ = io::stdout().flush();
+        aperta.set(true);
+    };
+
+    println!();
+    let esito = cie_firma::apri_e_autentica(ctx, &pin, &stampa);
+    if aperta.get() {
+        println!("{}", if esito.is_ok() { "✓" } else { "✗" });
+    }
+    esito
+}
 
 /// Recupera il PIN dal portachiavi di sistema (`secret-tool lookup service cie`).
 ///

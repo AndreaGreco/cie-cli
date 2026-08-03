@@ -27,7 +27,10 @@ Funzionante e verificato su carta reale (Bit4Id):
       entrambe le direzioni
 - [x] Verifica del PIN nel canale sicuro
 - [x] Lettura dei file protetti (seriale, certificato, dati del titolare)
-- [ ] Firma grezza con la chiave on-card (`MSE SET` + `INTERNAL AUTHENTICATE`)
+- [x] Firma on-card SHA-256 / PKCS#1 v1.5, verificata in locale
+- [x] PDF firmati in **PAdES B-B** con riquadro visibile, senza mai estrarre la chiave
+- [x] CAdES B-B enveloping (`.p7m`) su qualunque file, verificato con OpenSSL
+- [ ] Marca temporale (livello B-T): richiede una chiamata di rete a una TSA
 - [ ] Modulo PKCS#11 (`cdylib`) per Firefox e client SPID/CieID
 
 Il certificato sulla carta è **di autenticazione**, non di firma qualificata
@@ -48,6 +51,10 @@ sudo systemctl enable --now pcscd
 
 Il middleware CIE **non** serve.
 
+Per compilare serve anche il fork di `underskrift` in `../underskrift`
+(github.com/AttilioGreco/underskrift, branch `fix/pades-conformance`): il lavoro
+non e' ancora a monte. Vedi `HANDOFF.md`.
+
 ## Uso
 
 ```bash
@@ -57,8 +64,27 @@ cie info          # dati leggibili senza PIN
 cie pcsc-test     # diagnostica APDU
 cie auth          # canale sicuro + verifica PIN + dati protetti
 
+cie sign <file>       # firma detached: <file>.sig + <file>.cer
+cie sign-p7m <file>   # CAdES: contenuto e firma insieme in <file>.p7m
+cie sign-pdf <f.pdf>  # PAdES: la firma finisce dentro il PDF
+
 cie -vv auth      # con ogni APDU in TX/RX
 ```
+
+`cie sign-p7m` vale per qualunque file, PDF compresi: produce una busta CAdES
+enveloping, cioe' un DER che contiene sia il documento sia la firma. E' il
+formato che la PA chiama `.p7m`. Si controlla con
+`openssl cms -verify -in <file>.p7m -inform DER -noverify`.
+
+`cie sign-pdf` disegna in basso a destra un riquadro con l'intestatario e la
+data, presi dal certificato della carta. `--pagina N` lo sposta, `--motivo`
+aggiunge una riga. Il risultato si controlla con `pdfsig file-firmato.pdf`.
+
+`--certifica` produce una firma di certificazione (firma d'autore, quella che i
+lettori marcano con il nastrino): `1` vieta ogni modifica successiva, `2` lascia
+compilare i moduli e firmare — il default, quindi altri possono controfirmare —
+e `3` permette anche le annotazioni. Ammessa solo sulla prima firma di un
+documento.
 
 ### Il PIN
 

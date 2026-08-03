@@ -1,0 +1,252 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -42,7 +42,10 @@
+ repository = "https://github.com/kushaldas/underskrift"
+ 
+ [features]
+-blocking = ["dep:tokio"]
++blocking = [
++    "dep:tokio",
++    "tsp-ltv/blocking",
++]
+ default = [
+     "tsp",
+     "ltv",
+@@ -55,7 +58,10 @@
+     "inspect",
+ ]
+ inspect = ["dep:serde_json"]
+-ltv = ["tsp"]
++ltv = [
++    "tsp",
++    "tsp-ltv/ltv",
++]
+ report = [
+     "verify",
+     "dep:uppsala",
+@@ -69,6 +75,7 @@
+ tsp = [
+     "dep:reqwest",
+     "dep:tokio",
++    "tsp-ltv/tsp",
+ ]
+ verify = []
+ visual = [
+@@ -240,6 +247,7 @@
+ 
+ [dependencies.tsp-ltv]
+ version = "0.2"
++default-features = false
+ 
+ [dependencies.ttf-parser]
+ version = "0.25"
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -68,6 +68,7 @@
+ 
+ // Public re-exports for convenience
+ pub use cms::builder::{CmsProfile, SigningTimePlacement};
++pub use core::doc_mdp::DocMdpPermissions;
+ pub use core::doc_timestamp::DocTimestampOptions;
+ pub use crypto::algorithm::{AlgorithmRegistry, DigestAlgorithm, SignatureAlgorithm};
+ pub use crypto::software::SoftwareSigner;
+--- a/src/signer.rs
++++ b/src/signer.rs
+@@ -11,6 +11,7 @@
+ 
+ use crate::cms::builder::{CmsProfile, PdfCmsBuilder, SigningTimePlacement};
+ use crate::core::acroform;
++use crate::core::doc_mdp::{self, DocMdpPermissions};
+ use crate::core::incremental::IncrementalWriter;
+ use crate::core::parser;
+ use crate::core::sig_dict::{self, SigSubFilter};
+@@ -81,8 +82,19 @@
+     /// TSA URL for timestamping (required for B-T and above)
+     #[cfg(feature = "tsp")]
+     pub tsa_url: Option<String>,
+-    /// Whether this is a certification signature (first signature with DocMDP)
++    /// Whether this is a certification signature (first signature with DocMDP).
++    ///
++    /// A certification signature declares the signer as the document author and
++    /// states which later changes are permitted. Only one is allowed per
++    /// document and it must be the first signature applied; signing an
++    /// already-certified document fails.
+     pub certify: bool,
++    /// Which changes remain permitted after a certification signature.
++    ///
++    /// Only meaningful when [`certify`](Self::certify) is set. Defaults to
++    /// [`DocMdpPermissions::FormFillingAndSigning`], which still allows other
++    /// parties to countersign.
++    pub doc_mdp_permissions: DocMdpPermissions,
+     /// Algorithm registry for validating that the signer's algorithms are allowed.
+     ///
+     /// When set, the signing pipeline will validate the signer's digest and
+@@ -131,6 +143,7 @@
+             #[cfg(feature = "tsp")]
+             tsa_url: None,
+             certify: false,
++            doc_mdp_permissions: DocMdpPermissions::default(),
+             algorithm_registry: None,
+             #[cfg(feature = "visual")]
+             visible_signature: None,
+@@ -242,9 +255,33 @@
+             );
+         }
+ 
++        // /M — signing time. PAdES forbids the CMS signingTime attribute
++        // (ETSI EN 319 142-1), so the date lives here or nowhere. Without it
++        // every reader shows the epoch.
++        if let Some(t) = &self.options.cms_signing_time {
++            let m = format!("D:{}", t.format("%Y%m%d%H%M%S"));
++            sig_dict.set("M", Object::String(m.into_bytes(), lopdf::StringFormat::Literal));
++        }
++
++        // Certification (author) signature: declare the DocMDP transform so
++        // readers treat this as an author signature and enforce the permission
++        // level against any later incremental update.
++        if self.options.certify {
++            sig_dict.set(
++                "Reference",
++                doc_mdp::build_sig_reference(self.options.doc_mdp_permissions),
++            );
++        }
++
+         // Step 4: Add sig dict as a new object
+         let sig_dict_id = doc.add_object(Object::Dictionary(sig_dict));
+ 
++        // The catalog must point at the certification signature through
++        // /Perms /DocMDP, otherwise /Reference alone is inert.
++        if self.options.certify {
++            doc_mdp::set_perms_doc_mdp(&mut doc, sig_dict_id)?;
++        }
++
+         // Step 4b: Generate visible signature appearance if configured
+         #[cfg(feature = "visual")]
+         let appearance_data = if let Some(vis_config) = &self.options.visible_signature {
+--- a/src/core/doc_mdp.rs
++++ b/src/core/doc_mdp.rs
+@@ -3,6 +3,10 @@
+ //! Handles `/DocMDP` transform method for certification signatures and
+ //! `/FieldMDP` for field-level locking.
+ 
++use lopdf::{Dictionary, Document, Object, ObjectId};
++
++use crate::error::CoreError;
++
+ /// Permitted changes level for a certification signature (DocMDP).
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+ pub enum DocMdpPermissions {
+@@ -14,3 +18,113 @@
+     /// Form filling, signing, and annotation
+     FormFillingSigningAndAnnotation = 3,
+ }
++
++/// Builds the `/Reference` array for a certification signature.
++///
++/// Goes into the signature dictionary and declares that this signature is a
++/// certification (author) signature rather than an ordinary approval one:
++///
++/// ```text
++/// /Reference [ << /Type /SigRef
++///                 /TransformMethod /DocMDP
++///                 /TransformParams << /Type /TransformParams /V /1.2 /P n >> >> ]
++/// ```
++///
++/// Per ISO 32000-1 §12.8.2.2, `/V` is the DocMDP transform parameters version
++/// and is always `1.2`.
++pub fn build_sig_reference(permissions: DocMdpPermissions) -> Object {
++    let mut params = Dictionary::new();
++    params.set("Type", Object::Name(b"TransformParams".to_vec()));
++    params.set("V", Object::Name(b"1.2".to_vec()));
++    params.set("P", Object::Integer(permissions as i64));
++
++    let mut sig_ref = Dictionary::new();
++    sig_ref.set("Type", Object::Name(b"SigRef".to_vec()));
++    sig_ref.set("TransformMethod", Object::Name(b"DocMDP".to_vec()));
++    sig_ref.set("TransformParams", Object::Dictionary(params));
++
++    Object::Array(vec![Object::Dictionary(sig_ref)])
++}
++
++/// Points the document catalog's `/Perms` at the certification signature.
++///
++/// A document may carry only one certification signature, and it must be the
++/// first one applied (ISO 32000-1 §12.8.2.2). If `/Perms /DocMDP` is already
++/// present, the document is already certified and this fails rather than
++/// silently producing a file that readers will flag.
++pub fn set_perms_doc_mdp(doc: &mut Document, sig_dict_id: ObjectId) -> Result<(), CoreError> {
++    let catalog_id = doc
++        .trailer
++        .get(b"Root")
++        .and_then(Object::as_reference)
++        .map_err(|_| CoreError::InvalidStructure("trailer missing /Root reference".into()))?;
++
++    let catalog = doc
++        .get_object_mut(catalog_id)
++        .map_err(|e| CoreError::InvalidStructure(format!("failed to get catalog: {e}")))?
++        .as_dict_mut()
++        .map_err(|e| CoreError::InvalidStructure(format!("catalog is not a dictionary: {e}")))?;
++
++    let already_certified = catalog
++        .get(b"Perms")
++        .ok()
++        .and_then(|p| p.as_dict().ok())
++        .is_some_and(|perms| perms.has(b"DocMDP"));
++
++    if already_certified {
++        return Err(CoreError::InvalidStructure(
++            "document already carries a certification signature; only one is permitted".into(),
++        ));
++    }
++
++    let mut perms = match catalog.get(b"Perms") {
++        Ok(Object::Dictionary(d)) => d.clone(),
++        _ => Dictionary::new(),
++    };
++    perms.set("DocMDP", Object::Reference(sig_dict_id));
++    catalog.set("Perms", Object::Dictionary(perms));
++
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn sig_reference_carries_the_permission_level() {
++        let Object::Array(items) = build_sig_reference(DocMdpPermissions::NoChanges) else {
++            panic!("expected an array");
++        };
++        let sig_ref = items[0].as_dict().unwrap();
++        assert_eq!(
++            sig_ref.get(b"TransformMethod").unwrap().as_name().unwrap(),
++            b"DocMDP"
++        );
++        let params = sig_ref
++            .get(b"TransformParams")
++            .unwrap()
++            .as_dict()
++            .unwrap();
++        assert_eq!(params.get(b"V").unwrap().as_name().unwrap(), b"1.2");
++        assert_eq!(params.get(b"P").unwrap().as_i64().unwrap(), 1);
++    }
++
++    #[test]
++    fn permission_levels_map_to_the_pdf_p_values() {
++        assert_eq!(DocMdpPermissions::NoChanges as i64, 1);
++        assert_eq!(DocMdpPermissions::FormFillingAndSigning as i64, 2);
++        assert_eq!(DocMdpPermissions::FormFillingSigningAndAnnotation as i64, 3);
++    }
++
++    #[test]
++    fn refuses_to_certify_an_already_certified_document() {
++        let mut doc = Document::with_version("1.7");
++        let catalog_id = doc.add_object(Object::Dictionary(Dictionary::new()));
++        doc.trailer.set("Root", Object::Reference(catalog_id));
++        let sig_id = doc.add_object(Object::Dictionary(Dictionary::new()));
++
++        set_perms_doc_mdp(&mut doc, sig_id).expect("first certification should succeed");
++        assert!(set_perms_doc_mdp(&mut doc, sig_id).is_err());
++    }
++}
