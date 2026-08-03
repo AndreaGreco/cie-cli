@@ -28,7 +28,7 @@ Funziona e **verificato su carta reale** (Bit4Id, ATR `3B 8F 80 01 80 31 80 65
 - **PDF firmati in PAdES B-B** con riquadro visibile, verificati con `pdfsig`
 - **interfaccia grafica** `cie-gui`: anteprima del PDF e riquadro trascinabile
 
-38 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
+42 test, nessuno richiede la carta. Zero warning clippy nel nostro codice.
 
 ```bash
 cie info                 # dati leggibili senza PIN
@@ -46,7 +46,7 @@ Servono tutte e 8 le cifre. `cie-gui` scrive e cancella la stessa voce da solo.
 
 ## Il livello `cie-firma`
 
-`FirmatarioCie` e i tre contenitori vivevano dentro il binario `cie-cli`, dove
+`CieSigner` e i tre contenitori vivevano dentro il binario `cie-cli`, dove
 la GUI non poteva raggiungerli. Ora stanno in `crates/cie-firma`, fra `cie-lib`
 e chi ha una faccia. La ragione per cui non sono finiti in `cie-lib` e' sempre
 quella scritta piu' sotto: `underskrift` si porta dietro lopdf e un parser di
@@ -54,22 +54,22 @@ font, e il modulo PKCS#11 non deve ereditarli per esporre `C_Sign`.
 
 Tre cambi di sostanza rispetto a prima:
 
-- il riquadro PAdES non e' piu' cablato, arriva in `OpzioniPades` (la CLI passa
+- il riquadro PAdES non e' piu' cablato, arriva in `PadesOptions` (la CLI passa
   la posizione di prima, quindi `cie sign-pdf` si comporta come sempre)
-- `apri_e_autentica` non stampa piu': riferisce l'avanzamento via callback, e i
+- `open_and_authenticate` non stampa piu': riferisce l'avanzamento via callback, e i
   due chiamanti ne fanno quel che vogliono
 - `sign.rs` ha perso l'handshake duplicato; la verifica locale della firma
-  detached e' dentro `firma_detached`
+  detached e' dentro `sign_detached`
 
 ## `cie-gui`
 
 `eframe` + `rfd` + `hayro`, binario separato. Wizard di cinque passi, quattro
 quando la firma non e' PAdES: il riquadro esiste solo li'.
 
-Il pezzo che merita attenzione e' `anteprima.rs`. `SignatureRect::Absolute` di
+Il pezzo che merita attenzione e' `preview.rs`. `SignatureRect::Absolute` di
 underskrift finisce dritto nel `/Rect` dell'annotazione — **user space non
 ruotato, origine in basso a sinistra** — mentre l'immagine che l'utente trascina
-e' ruotata secondo `/Rotate` e ritagliata sul crop box. `punti_pdf()` annulla la
+e' ruotata secondo `/Rotate` e ritagliata sul crop box. `to_pdf_rect()` annulla la
 rotazione, esce dal crop box e ribalta la y. E' una funzione pura e i test la
 esercitano sulle quattro rotazioni con un crop box traslato: sbagliarla
 metterebbe la firma nel posto sbagliato **senza nessun errore visibile**.
@@ -102,7 +102,7 @@ visibile, e la chiave non lascia mai il chip.
 Libreria scelta: **`underskrift 0.1.4`** (BSD-2,
 https://github.com/kushaldas/underskrift). Espone `CryptoSigner`, un tratto di
 cinque metodi di cui uno è `sign_hash(&self, hash) -> Vec<u8>`: gli passiamo
-`FirmatarioCie`, lui ci consegna il digest e si riprende i 256 byte. Lo stesso
+`CieSigner`, lui ci consegna il digest e si riprende i 256 byte. Lo stesso
 schema di HSM e firma remota.
 
 Scartata `ades-rs 0.2.0`: ha lo stesso identico tratto (`Signer::sign_digest`),
@@ -226,7 +226,7 @@ Nuovo crate `crates/cie-pkcs11/` con `crate-type = ["cdylib"]` → `libcie_pkcs1
 `cdylib` dipende da `cie-lib`, e non ha nessun bisogno di sapere cosa sia un PDF.
 Se la libreria PAdES finisse nel livello carta, la `.so` si porterebbe dietro
 lopdf e un parser di font per esporre `C_Sign`. `cie-lib` resta il livello carta
-puro; il `FirmatarioCie` che implementa `CryptoSigner` sono 40 righe in
+puro; il `CieSigner` che implementa `CryptoSigner` sono 40 righe in
 `cie-firma`, e la `.so` non ha motivo di dipenderne.
 
 Cose da sapere prima di iniziare:

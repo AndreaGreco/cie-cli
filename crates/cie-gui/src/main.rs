@@ -1,18 +1,18 @@
-//! Interfaccia grafica per firmare documenti con la CIE.
+//! Graphical front end for signing documents with the CIE.
 //!
-//! Stessa carta e stesse firme di `cie`, ma con l'anteprima del PDF e il
-//! riquadro che si sceglie trascinandolo. Il binario e' separato apposta: chi
-//! usa la riga di comando non si porta dietro un toolkit grafico.
+//! Same card and same signatures as `cie`, but with a PDF preview and a stamp
+//! you place by dragging. The binary is separate on purpose: command-line users
+//! do not drag a GUI toolkit along.
 
 #![windows_subsystem = "windows"]
 
-mod anteprima;
-mod lavoro;
-mod portachiavi;
+mod job;
+mod keyring;
+mod preview;
 mod wizard;
 
 fn main() -> eframe::Result {
-    let opzioni = eframe::NativeOptions {
+    let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([900.0, 760.0])
             .with_min_inner_size([560.0, 420.0])
@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
 
     eframe::run_native(
         "Firma con CIE",
-        opzioni,
+        options,
         Box::new(|cc| Ok(Box::new(wizard::App::new(cc)))),
     )
 }

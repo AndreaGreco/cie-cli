@@ -8,7 +8,7 @@
 //! `cie-gui`, che mostra la pagina e lo fa trascinare.
 
 use anyhow::{Context, Result};
-use cie_firma::{firma_pdf, OpzioniPades};
+use cie_firma::{sign_pdf, PadesOptions};
 use cie_lib::PcscContext;
 
 /// Firma un PDF con la chiave della carta e lo riscrive con la firma dentro.
@@ -35,13 +35,13 @@ pub fn execute(
     let firmatario = super::apri_carta(&ctx, pin)?;
 
     println!("\n═══ Firma ═══");
-    let opzioni = OpzioniPades {
-        pagina,
-        motivo,
-        certifica,
+    let opzioni = PadesOptions {
+        page: pagina,
+        reason: motivo,
+        certify: certifica,
         ..Default::default()
     };
-    let firmato = firma_pdf(&pdf, &firmatario, &opzioni)?;
+    let firmato = sign_pdf(&pdf, &firmatario, &opzioni)?;
     println!("  PDF firmato: {} byte", firmato.len());
     if let Some(livello) = certifica {
         let cosa = match livello {

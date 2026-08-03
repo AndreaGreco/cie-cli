@@ -1,7 +1,7 @@
 //! Comando per firmare un file con la chiave on-card della CIE.
 
 use anyhow::{Context, Result};
-use cie_firma::{firma_detached, CryptoSigner};
+use cie_firma::{sign_detached, CryptoSigner};
 use cie_lib::PcscContext;
 use std::path::Path;
 
@@ -22,9 +22,9 @@ pub fn execute(percorso: String, pin: Option<String>, uscita: Option<String>) ->
     let firmatario = super::apri_carta(&ctx, pin)?;
 
     println!("\n═══ Firma ═══");
-    // `firma_detached` ricontrolla il risultato con la pubblica del
+    // `sign_detached` ricontrolla il risultato con la pubblica del
     // certificato: se torna un Ok, la firma e' gia' stata verificata.
-    let firma = firma_detached(&contenuto, &firmatario)?;
+    let firma = sign_detached(&contenuto, &firmatario)?;
     println!("  Firma prodotta: {} byte", firma.len());
     println!("  ✓ Verificata con la chiave pubblica del certificato");
 

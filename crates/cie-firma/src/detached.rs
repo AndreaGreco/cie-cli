@@ -1,54 +1,58 @@
-//! Firma RSA grezza, separata dal documento.
+//! Raw RSA signature, kept apart from the document.
 //!
-//! Non e' un contenitore: sono 256 byte di PKCS#1 v1.5 sul digest SHA-256 del
-//! file. E' il mattone su cui PAdES e CAdES si costruiscono, ed e' anche l'unica
-//! forma che si verifica con due comandi di OpenSSL e niente altro.
+//! Not a container: 256 bytes of PKCS#1 v1.5 over the file's SHA-256 digest.
+//! It is the brick PAdES and CAdES are built from, and the only form that can
+//! be checked with two OpenSSL commands and nothing else.
 
 use anyhow::{anyhow, ensure, Result};
 use cie_lib::titolare::ChiavePubblicaRsa;
 use underskrift::CryptoSigner;
 
-/// Firma il digest SHA-256 del contenuto e ricontrolla il risultato in locale.
+/// Signs the content's SHA-256 digest and rechecks the result locally.
 ///
-/// La verifica con la pubblica del certificato non e' cerimonia: se non torna,
-/// il problema e' nostro e non ha senso mandare la firma a un validatore
-/// esterno. Costa qualche microsecondo e la carta ha gia' fatto la sua parte.
-pub fn firma_detached(contenuto: &[u8], firmatario: &dyn CryptoSigner) -> Result<Vec<u8>> {
-    let hash = cie_lib::crypto::sha256(contenuto);
+/// Verifying against the certificate's public key is not ceremony: if it does
+/// not add up the problem is ours, and there is no point sending the signature
+/// to an external validator. It costs microseconds and the card has already
+/// done its part.
+pub fn sign_detached(content: &[u8], signer: &dyn CryptoSigner) -> Result<Vec<u8>> {
+    let hash = cie_lib::crypto::sha256(content);
 
-    let firma = firmatario
+    let signature = signer
         .sign_hash(&hash)
-        .map_err(|e| anyhow!("firma sulla carta: {e}"))?;
+        .map_err(|e| anyhow!("signing on the card: {e}"))?;
 
-    let pubblica = ChiavePubblicaRsa::from_certificate_der(firmatario.certificate_der())?;
+    let public = ChiavePubblicaRsa::from_certificate_der(signer.certificate_der())?;
     ensure!(
-        pubblica.verifica_sha256(&hash, &firma),
+        public.verifica_sha256(&hash, &signature),
         "la firma non verifica con la chiave pubblica del certificato: \
          qualcosa non torna nella catena"
     );
 
-    Ok(firma)
+    Ok(signature)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firmatario::finto::firmatario_finto;
+    use crate::signer::fake::fake_signer;
 
     #[test]
-    fn la_firma_verifica_con_la_pubblica_del_certificato() {
-        let firmatario = firmatario_finto();
-        let firma = firma_detached(b"contenuto qualunque", &firmatario).unwrap();
-        assert_eq!(firma.len(), 256, "RSA 2048 produce 256 byte");
+    fn the_signature_verifies_against_the_certificate_public_key() {
+        let signer = fake_signer();
+        let signature = sign_detached(b"any content", &signer).unwrap();
+        assert_eq!(signature.len(), 256, "RSA 2048 produces 256 bytes");
     }
 
-    /// La verifica interna deve mordere: un firmatario che restituisce byte a
-    /// caso non deve poter passare per una firma valida.
+    /// The internal check has to bite: a signer handing back random bytes must
+    /// not pass for a valid signature.
     #[test]
-    fn una_firma_che_non_verifica_e_un_errore() {
-        struct Bugiardo(Vec<u8>);
-        impl CryptoSigner for Bugiardo {
-            fn sign_hash(&self, _: &[u8]) -> std::result::Result<Vec<u8>, underskrift::error::CryptoError> {
+    fn a_signature_that_does_not_verify_is_an_error() {
+        struct Liar(Vec<u8>);
+        impl CryptoSigner for Liar {
+            fn sign_hash(
+                &self,
+                _: &[u8],
+            ) -> std::result::Result<Vec<u8>, underskrift::error::CryptoError> {
                 Ok(vec![0x42; 256])
             }
             fn certificate_der(&self) -> &[u8] {
@@ -65,7 +69,7 @@ mod tests {
             }
         }
 
-        let cert = firmatario_finto().certificate_der().to_vec();
-        assert!(firma_detached(b"contenuto", &Bugiardo(cert)).is_err());
+        let cert = fake_signer().certificate_der().to_vec();
+        assert!(sign_detached(b"content", &Liar(cert)).is_err());
     }
 }

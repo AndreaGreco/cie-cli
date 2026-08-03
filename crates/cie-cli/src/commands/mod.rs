@@ -1,7 +1,7 @@
 //! Moduli dei comandi CLI
 
 use anyhow::Result;
-use cie_firma::{FirmatarioCie, Passo};
+use cie_firma::{CieSigner, Step};
 use cie_lib::PcscContext;
 use std::cell::Cell;
 use std::io::{self, Write};
@@ -18,21 +18,21 @@ pub mod sign_pdf;
 ///
 /// Il PIN si risolve *prima* di toccare il lettore: se manca, tanto vale
 /// scoprirlo senza aver gia' aperto un canale sicuro.
-pub fn apri_carta(ctx: &PcscContext, pin: Option<String>) -> Result<FirmatarioCie> {
+pub fn apri_carta(ctx: &PcscContext, pin: Option<String>) -> Result<CieSigner> {
     let pin = ottieni_pin(pin)?;
 
     // La riga precedente si chiude quando arriva il passo successivo: il
     // callback sa cosa sta per iniziare, non cosa e' finito.
     let aperta = Cell::new(false);
-    let stampa = |p: Passo| {
+    let stampa = |s: Step| {
         if aperta.get() {
             println!("✓");
         }
-        let testo = match p {
-            Passo::Connessione => "Connessione alla carta...",
-            Passo::CanaleSicuro => "Apertura del canale sicuro...",
-            Passo::Pin => "Verifica del PIN...",
-            Passo::Certificato => "Lettura del certificato...",
+        let testo = match s {
+            Step::Connecting => "Connessione alla carta...",
+            Step::SecureChannel => "Apertura del canale sicuro...",
+            Step::Pin => "Verifica del PIN...",
+            Step::Certificate => "Lettura del certificato...",
         };
         print!("  {} ", testo);
         let _ = io::stdout().flush();
@@ -40,7 +40,7 @@ pub fn apri_carta(ctx: &PcscContext, pin: Option<String>) -> Result<FirmatarioCi
     };
 
     println!();
-    let esito = cie_firma::apri_e_autentica(ctx, &pin, &stampa);
+    let esito = cie_firma::open_and_authenticate(ctx, &pin, &stampa);
     if aperta.get() {
         println!("{}", if esito.is_ok() { "✓" } else { "✗" });
     }

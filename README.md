@@ -135,7 +135,7 @@ crates/
 │       └── error.rs
 ├── cie-firma/                   firmatario on-card e contenitori
 │   └── src/
-│       ├── firmatario.rs        FirmatarioCie: la carta come CryptoSigner
+│       ├── signer.rs            CieSigner: la carta come CryptoSigner
 │       ├── pades.rs             PAdES B-B, riquadro visibile
 │       ├── cades.rs             CAdES enveloping (.p7m)
 │       └── detached.rs          firma RSA grezza, con verifica locale
@@ -143,10 +143,13 @@ crates/
 └── cie-gui/                     binario `cie-gui`
     └── src/
         ├── wizard.rs            i cinque passi
-        ├── anteprima.rs         hayro + riquadro → punti PDF
-        ├── lavoro.rs            la carta su un thread suo
-        └── portachiavi.rs       il PIN via D-Bus
+        ├── preview.rs           hayro + riquadro → punti PDF
+        ├── job.rs               la carta su un thread suo
+        └── keyring.rs           il PIN via D-Bus
 ```
+
+`cie-firma` e `cie-gui` sono scritti in inglese; in italiano restano solo le
+stringhe che l'utente legge. `cie-lib` e `cie-cli` sono ancora in italiano.
 
 `cie-firma` sta in mezzo apposta: `underskrift` si porta dietro lopdf e un
 parser di font, roba che non ha niente a che fare con una APDU. `cie-lib` resta
@@ -155,7 +158,7 @@ il livello carta puro, come serve al futuro modulo PKCS#11.
 ## Sviluppo
 
 ```bash
-cargo test      # 38 test, nessuno richiede la carta
+cargo test      # 42 test, nessuno richiede la carta
 cargo clippy
 ```
 

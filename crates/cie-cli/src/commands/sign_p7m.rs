@@ -5,7 +5,7 @@
 //! insieme in un unico DER: e' il `.p7m` della prassi italiana.
 
 use anyhow::{Context, Result};
-use cie_firma::firma_p7m;
+use cie_firma::sign_p7m;
 use cie_lib::PcscContext;
 
 /// Firma un file con la chiave della carta e lo riscrive dentro un `.p7m`.
@@ -21,7 +21,7 @@ pub fn execute(percorso: String, pin: Option<String>, uscita: Option<String>) ->
     let firmatario = super::apri_carta(&ctx, pin)?;
 
     println!("\n═══ Firma ═══");
-    let busta = firma_p7m(&contenuto, &firmatario)?;
+    let busta = sign_p7m(&contenuto, &firmatario)?;
     println!("  Busta CAdES: {} byte", busta.len());
     println!("  ✓ Il contenuto originale si rilegge dalla busta");
 

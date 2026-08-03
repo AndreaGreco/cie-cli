@@ -1,5 +1,5 @@
-//! Il firmatario che vive sulla carta, condiviso da tutti i contenitori di
-//! firma (PAdES, CAdES, detached) e da tutte le interfacce.
+//! The signer that lives on the card, shared by every signature container
+//! (PAdES, CAdES, detached) and by every front end.
 
 use anyhow::Result;
 use cie_lib::{secure_messaging, CieCard, CieType, PcscCard, PcscContext, SecureMessaging};
@@ -7,59 +7,58 @@ use std::sync::Mutex;
 use underskrift::error::CryptoError;
 use underskrift::{CryptoSigner, DigestAlgorithm, SignatureAlgorithm};
 
-/// Firmatario che vive sulla carta.
+/// A signer backed by the card.
 ///
-/// underskrift non vede mai una chiave: gli passiamo questo, lui ci consegna un
-/// digest e si riprende 256 byte di firma. E' lo stesso schema che usano gli HSM
-/// e la firma remota, ed e' il motivo per cui questa libreria e' utilizzabile
-/// con una chiave che non e' estraibile.
+/// underskrift never sees a key: we hand it this, it hands us a digest and
+/// takes back 256 bytes of signature. Same scheme HSMs and remote signing use,
+/// and the reason that library works at all with a non-extractable key.
 ///
-/// Il `Mutex` c'e' perche' il tratto chiede `&self` mentre `sign_sha256` vuole
-/// `&mut SecureMessaging` (l'SSC avanza a ogni comando). `pcsc::Card` e' gia'
-/// `Send + Sync`, quindi non serve altro.
-pub struct FirmatarioCie {
+/// The `Mutex` is there because the trait asks for `&self` while `sign_sha256`
+/// wants `&mut SecureMessaging` (the SSC advances on every command).
+/// `pcsc::Card` is already `Send + Sync`, so nothing else is needed.
+pub struct CieSigner {
     sm: Mutex<SecureMessaging>,
     card: PcscCard,
-    certificato: Vec<u8>,
+    certificate: Vec<u8>,
 }
 
-/// A che punto e' l'apertura della carta.
+/// How far along opening the card is.
 ///
-/// Serve a chi ha una faccia da aggiornare: la sequenza costa circa un secondo
-/// e restare muti tutto quel tempo sembra un blocco.
+/// Meant for anything with a face to update: the sequence costs about a second
+/// and staying silent that long reads as a freeze.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Passo {
-    /// Connessione al lettore e riconoscimento della carta.
-    Connessione,
-    /// Diffie-Hellman e autenticazione mutua DAPP.
-    CanaleSicuro,
-    /// VERIFY PIN dentro il canale.
+pub enum Step {
+    /// Connecting to the reader and identifying the card.
+    Connecting,
+    /// Diffie-Hellman and mutual DAPP authentication.
+    SecureChannel,
+    /// VERIFY PIN inside the channel.
     Pin,
-    /// Lettura del certificato (file 0x1003). Se arriva, il PIN era giusto.
-    Certificato,
+    /// Reading the certificate (file 0x1003). If we get here, the PIN was good.
+    Certificate,
 }
 
-impl CryptoSigner for FirmatarioCie {
+impl CryptoSigner for CieSigner {
     fn sign_hash(&self, hash: &[u8]) -> std::result::Result<Vec<u8>, CryptoError> {
         let hash: &[u8; 32] = hash.try_into().map_err(|_| {
-            CryptoError::SigningFailed(format!("atteso SHA-256, ricevuti {} byte", hash.len()))
+            CryptoError::SigningFailed(format!("expected SHA-256, got {} bytes", hash.len()))
         })?;
 
         self.sm
             .lock()
-            .expect("mutex del canale sicuro avvelenato")
+            .expect("secure channel mutex poisoned")
             .sign_sha256(&self.card, hash)
             .map_err(|e| CryptoError::SigningFailed(e.to_string()))
     }
 
     fn certificate_der(&self) -> &[u8] {
-        &self.certificato
+        &self.certificate
     }
 
     fn certificate_chain_der(&self) -> Vec<&[u8]> {
-        // La carta espone solo la propria foglia: le CA del Ministero non ci
-        // sono. Basta per il livello B-B; per LTV servirebbero anche quelle.
-        vec![&self.certificato]
+        // The card only exposes its own leaf: the Ministry CAs are not there.
+        // Enough for level B-B; LTV would need them too.
+        vec![&self.certificate]
     }
 
     fn digest_algorithm(&self) -> DigestAlgorithm {
@@ -71,60 +70,60 @@ impl CryptoSigner for FirmatarioCie {
     }
 }
 
-/// Canale sicuro, PIN e certificato: tutto quello che serve prima di firmare.
+/// Secure channel, PIN and certificate: everything needed before signing.
 ///
-/// Il contesto resta al chiamante perche' chiudendolo si invalida l'handle
-/// della carta.
+/// The context stays with the caller because dropping it invalidates the card
+/// handle.
 ///
-/// `avanzamento` viene chiamato *prima* di ogni fase, mai dopo: chi stampa a
-/// terminale e chi muove una barra vogliono sapere cosa sta per succedere, non
-/// cosa e' gia' successo.
-pub fn apri_e_autentica(
+/// `progress` is called *before* each phase, never after: whoever prints to a
+/// terminal and whoever moves a spinner both want to know what is about to
+/// happen, not what already did.
+pub fn open_and_authenticate(
     ctx: &PcscContext,
     pin: &str,
-    avanzamento: &dyn Fn(Passo),
-) -> Result<FirmatarioCie> {
-    avanzamento(Passo::Connessione);
+    progress: &dyn Fn(Step),
+) -> Result<CieSigner> {
+    progress(Step::Connecting);
     let card = ctx.connect_to_cie()?;
     let cie_type = CieType::from_atr(&card.get_atr()?);
     CieCard::new(&card)?;
 
-    avanzamento(Passo::CanaleSicuro);
+    progress(Step::SecureChannel);
     let mut sm = secure_messaging::establish_secure_messaging(&card, cie_type)?;
 
-    avanzamento(Passo::Pin);
+    progress(Step::Pin);
     sm.verify_pin(&card, pin)?;
 
-    avanzamento(Passo::Certificato);
-    let certificato = sm.read_file(&card, 0x1003)?;
+    progress(Step::Certificate);
+    let certificate = sm.read_file(&card, 0x1003)?;
 
-    Ok(FirmatarioCie {
+    Ok(CieSigner {
         sm: Mutex::new(sm),
         card,
-        certificato,
+        certificate,
     })
 }
 
-/// Sta al posto della carta: riceve un hash, costruisce il DigestInfo e applica
-/// padding PKCS#1 v1.5 + RSA. E' esattamente cio' che fa `sign_sha256`, quindi
-/// il percorso di firma esercitato dai test e' quello vero.
+/// Stands in for the card: takes a hash, builds the DigestInfo, applies PKCS#1
+/// v1.5 padding and RSA. Exactly what `sign_sha256` does, so the signing path
+/// the tests exercise is the real one.
 #[cfg(test)]
-pub mod finto {
+pub mod fake {
     use super::*;
 
-    pub struct FirmatarioFinto {
+    pub struct FakeSigner {
         key: rsa::RsaPrivateKey,
         cert: Vec<u8>,
     }
 
-    const PREFISSO_DIGESTINFO_SHA256: [u8; 19] = [
+    const SHA256_DIGESTINFO_PREFIX: [u8; 19] = [
         0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
         0x05, 0x00, 0x04, 0x20,
     ];
 
-    impl CryptoSigner for FirmatarioFinto {
+    impl CryptoSigner for FakeSigner {
         fn sign_hash(&self, hash: &[u8]) -> std::result::Result<Vec<u8>, CryptoError> {
-            let mut digest_info = PREFISSO_DIGESTINFO_SHA256.to_vec();
+            let mut digest_info = SHA256_DIGESTINFO_PREFIX.to_vec();
             digest_info.extend_from_slice(hash);
             self.key
                 .sign(rsa::Pkcs1v15Sign::new_unprefixed(), &digest_info)
@@ -144,7 +143,7 @@ pub mod finto {
         }
     }
 
-    pub fn firmatario_finto() -> FirmatarioFinto {
+    pub fn fake_signer() -> FakeSigner {
         use der::{Decode, Encode};
         use rsa::pkcs1v15::SigningKey;
         use sha2::Sha256;
@@ -174,6 +173,6 @@ pub mod finto {
         .to_der()
         .unwrap();
 
-        FirmatarioFinto { key, cert }
+        FakeSigner { key, cert }
     }
 }

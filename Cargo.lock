@@ -816,6 +816,7 @@ dependencies = [
  "hayro",
  "rfd",
  "secret-service",
+ "tempfile",
  "tokio",
 ]
 

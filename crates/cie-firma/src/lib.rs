@@ -1,26 +1,26 @@
-//! Firma con la chiave che vive sulla CIE.
+//! Signing with the key that lives on the CIE.
 //!
-//! Sta sopra `cie-lib` (il livello carta puro) e sotto chi ha una faccia:
-//! `cie-cli` e `cie-gui` firmano tutti e due passando di qui. La ragione per cui
-//! questo livello esiste separato e' che `underskrift` si porta dietro lopdf e
-//! un parser di font: roba che non ha niente a che fare con una APDU e che il
-//! futuro modulo PKCS#11 non deve ereditare per esporre `C_Sign`.
+//! Sits above `cie-lib` (the bare card layer) and below anything with a face:
+//! `cie-cli` and `cie-gui` both sign through here. This layer exists on its own
+//! because `underskrift` drags in lopdf and a font parser — things that have
+//! nothing to do with an APDU, and that the future PKCS#11 module must not
+//! inherit just to expose `C_Sign`.
 //!
-//! Tre contenitori, un solo firmatario:
+//! Three containers, one signer:
 //!
-//! - [`firma_pdf`] — PAdES B-B, la firma finisce dentro il PDF
-//! - [`firma_p7m`] — CAdES enveloping, contenuto e firma in un unico DER
-//! - [`firma_detached`] — la firma RSA grezza, il mattone sotto gli altri due
+//! - [`sign_pdf`] — PAdES B-B, the signature goes inside the PDF
+//! - [`sign_p7m`] — CAdES enveloping, content and signature in a single DER
+//! - [`sign_detached`] — the raw RSA signature, the brick under the other two
 
 mod cades;
 mod detached;
-mod firmatario;
 mod pades;
+mod signer;
 
-pub use cades::firma_p7m;
-pub use detached::firma_detached;
-pub use firmatario::{apri_e_autentica, FirmatarioCie, Passo};
-pub use pades::{firma_pdf, OpzioniPades};
+pub use cades::sign_p7m;
+pub use detached::sign_detached;
+pub use pades::{sign_pdf, PadesOptions};
+pub use signer::{open_and_authenticate, CieSigner, Step};
 
-// Chi firma ha bisogno del tratto per passare un `&dyn CryptoSigner`.
+// Callers need the trait in scope to hand out a `&dyn CryptoSigner`.
 pub use underskrift::CryptoSigner;

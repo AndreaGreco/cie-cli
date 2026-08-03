@@ -1,84 +1,84 @@
-//! CAdES enveloping: il file *e* la firma insieme in un unico DER.
+//! CAdES enveloping: the file *and* the signature together in one DER.
 //!
-//! E' il `.p7m` della prassi italiana. A differenza del PAdES vale per qualunque
-//! file, non solo per i PDF.
+//! This is the `.p7m` of Italian practice. Unlike PAdES it works on any file,
+//! not just PDFs.
 //!
-//! Livello CAdES B-B. Niente marca temporale, per lo stesso motivo del PAdES.
+//! Level CAdES B-B. No timestamp, for the same reason as PAdES.
 
 use anyhow::{Context, Result};
 use underskrift::{cades, CryptoSigner};
 
-/// Impacchetta contenuto e firma in una busta CAdES enveloping.
-pub fn firma_p7m(contenuto: &[u8], firmatario: &dyn CryptoSigner) -> Result<Vec<u8>> {
-    // Il CAdES tiene il signingTime dentro il CMS, dove il PAdES lo vieta.
-    let adesso = chrono::Local::now().naive_local();
+/// Wraps content and signature into a CAdES enveloping structure.
+pub fn sign_p7m(content: &[u8], signer: &dyn CryptoSigner) -> Result<Vec<u8>> {
+    // CAdES keeps signingTime inside the CMS, where PAdES forbids it.
+    let now = chrono::Local::now().naive_local();
 
-    let busta = cades::sign_attached(contenuto, firmatario, Some(adesso)).context("firma CAdES")?;
+    let envelope = cades::sign_attached(content, signer, Some(now)).context("CAdES signing")?;
 
-    // La busta deve restituire esattamente cio' che e' entrato, altrimenti la
-    // firma copre qualcosa che il destinatario non vedra' mai.
-    // ponytail: qui si ricontrolla solo l'incapsulamento, non la crittografia:
-    // per quella la feature `verify` di underskrift non compila senza `tsp`
-    // (che riporta dentro reqwest). I test verificano la firma con OpenSSL.
-    let recuperato = cades::extract_content(&busta).context("rilettura della busta")?;
+    // The envelope must give back exactly what went in, otherwise the
+    // signature covers something the recipient will never see.
+    // ponytail: this only rechecks the encapsulation, not the crypto: for that
+    // underskrift's `verify` feature does not compile without `tsp` (which
+    // drags reqwest back in). The tests verify the signature with OpenSSL.
+    let recovered = cades::extract_content(&envelope).context("reading the envelope back")?;
     anyhow::ensure!(
-        recuperato == contenuto,
-        "la busta non restituisce il contenuto originale"
+        recovered == content,
+        "the envelope does not return the original content"
     );
 
-    Ok(busta)
+    Ok(envelope)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firmatario::finto::firmatario_finto;
+    use crate::signer::fake::fake_signer;
     use std::process::Command;
 
-    /// Verifica la busta con OpenSSL: un giudizio indipendente dalla libreria
-    /// che l'ha prodotta. `-noverify` salta la catena (il certificato di prova
-    /// e' autofirmato), non la firma.
-    fn openssl_verifica(busta: &[u8]) -> bool {
+    /// Verifies the envelope with OpenSSL: a verdict independent of the
+    /// library that produced it. `-noverify` skips the chain (the test
+    /// certificate is self-signed), not the signature.
+    fn openssl_accepts(envelope: &[u8]) -> bool {
         let dir = std::env::temp_dir().join(format!("cie-p7m-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join(format!("{:x}.p7m", busta.len()));
-        std::fs::write(&file, busta).unwrap();
+        let file = dir.join(format!("{:x}.p7m", envelope.len()));
+        std::fs::write(&file, envelope).unwrap();
 
-        let esito = Command::new("openssl")
+        let outcome = Command::new("openssl")
             .args(["cms", "-verify", "-inform", "DER", "-noverify", "-in"])
             .arg(&file)
             .arg("-out")
-            .arg(dir.join("contenuto"))
+            .arg(dir.join("content"))
             .output()
-            .expect("openssl non trovato: serve per verificare la busta");
+            .expect("openssl not found: needed to verify the envelope");
 
         let _ = std::fs::remove_dir_all(&dir);
-        esito.status.success()
+        outcome.status.success()
     }
 
     #[test]
-    fn la_busta_contiene_il_file_e_openssl_ne_verifica_la_firma() {
-        let contenuto = b"contratto qualunque, non serve che sia un PDF";
-        let busta = firma_p7m(contenuto, &firmatario_finto()).unwrap();
+    fn the_envelope_holds_the_file_and_openssl_verifies_its_signature() {
+        let content = b"any contract, it does not have to be a PDF";
+        let envelope = sign_p7m(content, &fake_signer()).unwrap();
 
-        // Enveloping, non detached: il contenuto sta dentro la busta.
-        assert_eq!(cades::extract_content(&busta).unwrap(), contenuto);
-        assert!(openssl_verifica(&busta), "OpenSSL rifiuta la busta");
+        // Enveloping, not detached: the content lives inside.
+        assert_eq!(cades::extract_content(&envelope).unwrap(), content);
+        assert!(openssl_accepts(&envelope), "OpenSSL rejects the envelope");
     }
 
-    /// Un byte cambiato nel contenuto incapsulato deve far cadere la verifica:
-    /// e' l'unica cosa che distingue una firma da un blocco di byte in coda.
+    /// One changed byte in the encapsulated content must break verification:
+    /// it is the only thing separating a signature from trailing bytes.
     #[test]
-    fn una_busta_alterata_non_verifica_piu() {
-        let contenuto = b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_vec();
-        let mut busta = firma_p7m(&contenuto, &firmatario_finto()).unwrap();
+    fn a_tampered_envelope_no_longer_verifies() {
+        let content = b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_vec();
+        let mut envelope = sign_p7m(&content, &fake_signer()).unwrap();
 
-        let pos = busta
-            .windows(contenuto.len())
-            .position(|w| w == contenuto.as_slice())
-            .expect("contenuto incapsulato");
-        busta[pos] = b'B';
+        let at = envelope
+            .windows(content.len())
+            .position(|w| w == content.as_slice())
+            .expect("encapsulated content");
+        envelope[at] = b'B';
 
-        assert!(!openssl_verifica(&busta), "OpenSSL accetta una busta alterata");
+        assert!(!openssl_accepts(&envelope), "OpenSSL accepts a tampered envelope");
     }
 }
