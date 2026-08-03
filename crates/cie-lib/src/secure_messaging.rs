@@ -87,6 +87,9 @@ const EXT_AUTH_PRIVEXP: &[u8] = &[
 /// Key id della chiave di external authentication (CIE_KEY_ExtAuth_ID).
 const CIE_KEY_EXT_AUTH_ID: u8 = 0x84;
 
+/// Key id della chiave di firma on-card (CIE_KEY_Sign_ID).
+const CIE_KEY_SIGN_ID: u8 = 0x81;
+
 /// Contesto Secure Messaging
 pub struct SecureMessaging {
     /// Chiave di sessione per cifratura (16 bytes)
@@ -868,6 +871,29 @@ impl SecureMessaging {
         }
     }
 
+    /// Firma un digest SHA-256 con la chiave di firma della carta.
+    ///
+    /// Richiede il PIN gia' verificato: la chiave e' protetta.
+    ///
+    /// Segue `IAS::Sign` (IAS.cpp:122): MSE SET dell'algoritmo e della chiave,
+    /// poi `INTERNAL AUTHENTICATE`. Alla carta non si manda l'hash nudo ma il
+    /// **DigestInfo** PKCS#1 v1.5 (`CCIESigner::Sign` -> `makeDigestInfo`); il
+    /// padding PKCS#1 e la RSA li fa il chip.
+    ///
+    /// Restituisce la firma grezza, lunga quanto il modulo (256 byte, RSA-2048).
+    pub fn sign_sha256(&mut self, card: &PcscCard, hash: &[u8; 32]) -> Result<Vec<u8>> {
+        info!("Firma on-card di un digest SHA-256...");
+
+        let mut mse = asn1_tag(0x80, &[0x02]);
+        mse.extend_from_slice(&asn1_tag(0x84, &[CIE_KEY_SIGN_ID]));
+        self.send_sm_ok(card, [0x00, 0x22, 0x41, 0xA4], &mse, None)?;
+
+        let firma = self.send_sm_ok(card, [0x00, 0x88, 0x00, 0x00], &digest_info_sha256(hash), None)?;
+
+        debug!("firma: {} byte", firma.len());
+        Ok(firma)
+    }
+
     /// Legge un file dalla carta usando Secure Messaging
     pub fn read_file(&mut self, card: &PcscCard, file_id: u16) -> Result<Vec<u8>> {
         if !self.is_active() {
@@ -956,6 +982,27 @@ fn parse_apdu_body(apdu: &[u8]) -> (Vec<u8>, Option<u8>) {
             }
         }
     }
+}
+
+/// Costruisce il DigestInfo PKCS#1 v1.5 per un hash SHA-256.
+///
+/// `DigestInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING }`, dove
+/// l'AlgorithmIdentifier e' l'OID di SHA-256 (2.16.840.1.101.3.4.2.1) seguito
+/// da NULL. E' cio' che la carta si aspetta al posto dell'hash nudo.
+pub(crate) fn digest_info_sha256_pub(hash: &[u8; 32]) -> Vec<u8> {
+    digest_info_sha256(hash)
+}
+
+fn digest_info_sha256(hash: &[u8; 32]) -> Vec<u8> {
+    const OID_SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
+
+    let mut algo = asn1_tag(0x06, OID_SHA256);
+    algo.extend_from_slice(&asn1_tag(0x05, &[])); // NULL dei parametri
+
+    let mut contenuto = asn1_tag(0x30, &algo);
+    contenuto.extend_from_slice(&asn1_tag(0x04, hash));
+
+    asn1_tag(0x30, &contenuto)
 }
 
 /// Compone gli APDU in chiaro di un comando, spezzandolo se serve.
@@ -1157,6 +1204,20 @@ mod tests {
     /// Il chaining e' il punto in cui il certificato DAPP puo' rompersi in
     /// silenzio: blocchi intermedi con CLA|0x10, Le solo sull'ultimo, e la
     /// concatenazione dei chunk deve restituire i dati originali.
+    /// Il DigestInfo ha una codifica DER fissa e arcinota: se la costruzione
+    /// ASN.1 sbaglia di un byte, la carta firma qualcosa che non verifica.
+    #[test]
+    fn test_digest_info_sha256() {
+        let di = digest_info_sha256(&[0xAB; 32]);
+        assert_eq!(
+            hex::encode_upper(&di[..19]),
+            "3031300D060960864801650304020105000420",
+            "prefisso DigestInfo SHA-256 standard"
+        );
+        assert_eq!(di.len(), 51, "19 di prefisso + 32 di hash");
+        assert_eq!(&di[19..], &[0xAB; 32]);
+    }
+
     #[test]
     fn test_chain_apdu() {
         let head = [0x00, 0x2A, 0x00, 0xAE];

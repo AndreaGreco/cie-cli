@@ -129,3 +129,67 @@ impl std::fmt::Display for DatiTitolare {
         Ok(())
     }
 }
+
+/// Chiave pubblica RSA estratta da un certificato X.509.
+///
+/// Serve a verificare in locale le firme prodotte dalla carta, senza dipendere
+/// da strumenti esterni: se la verifica non torna, il problema e' a monte.
+pub struct ChiavePubblicaRsa {
+    /// Modulo, senza zeri di padding iniziali.
+    pub modulo: Vec<u8>,
+    /// Esponente pubblico (tipicamente 65537).
+    pub esponente: Vec<u8>,
+}
+
+impl ChiavePubblicaRsa {
+    /// Estrae modulo ed esponente dal SubjectPublicKeyInfo di un certificato DER.
+    pub fn from_certificate_der(der_data: &[u8]) -> crate::Result<Self> {
+        use crate::asn1::Asn1Node;
+        use crate::error::CieError;
+
+        let cert = Certificate::from_der(der_data)
+            .map_err(|e| CieError::Protocol(format!("certificato non parsabile: {}", e)))?;
+
+        let spki = cert
+            .tbs_certificate
+            .subject_public_key_info
+            .subject_public_key
+            .as_bytes()
+            .ok_or_else(|| CieError::Protocol("SubjectPublicKey non allineata a byte".into()))?;
+
+        // RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }
+        let node = Asn1Node::parse(spki)?;
+        if node.children.len() < 2 {
+            return Err(CieError::Protocol(
+                "SubjectPublicKey: attesa una SEQUENCE con modulo ed esponente".into(),
+            ));
+        }
+
+        Ok(Self {
+            modulo: node.children[0].as_integer(),
+            esponente: node.children[1].as_integer(),
+        })
+    }
+
+    /// Verifica una firma PKCS#1 v1.5 su un digest SHA-256.
+    ///
+    /// Rifa' l'operazione RSA con la pubblica e controlla che il risultato sia
+    /// `00 01 FF..FF 00 || DigestInfo(hash)`, cioe' esattamente cio' che la
+    /// carta avrebbe dovuto costruire.
+    pub fn verifica_sha256(&self, hash: &[u8; 32], firma: &[u8]) -> bool {
+        let atteso = crate::secure_messaging::digest_info_sha256_pub(hash);
+        let recuperato = crate::crypto::rsa_raw(firma, &self.esponente, &self.modulo);
+
+        // 00 01 | padding FF | 00 | DigestInfo
+        if recuperato.len() < atteso.len() + 11 {
+            return false;
+        }
+        let (testa, coda) = recuperato.split_at(recuperato.len() - atteso.len());
+
+        testa.first() == Some(&0x00)
+            && testa.get(1) == Some(&0x01)
+            && testa.last() == Some(&0x00)
+            && testa[2..testa.len() - 1].iter().all(|b| *b == 0xFF)
+            && coda == atteso
+    }
+}

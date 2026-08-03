@@ -3,49 +3,10 @@
 use anyhow::Result;
 use cie_lib::{CieCard, CieType, PcscContext, SecureMessaging};
 use std::io::{self, Write};
-use std::process::Command;
 
 /// Un passo dell'handshake: nome da mostrare e metodo da invocare.
 type Passo = (&'static str, fn(&mut SecureMessaging, &cie_lib::PcscCard) -> cie_lib::Result<()>);
 
-/// Recupera il PIN dal portachiavi di sistema (`secret-tool lookup service cie`).
-///
-/// Delega al binario di libsecret invece di parlare D-Bus: e' gia' installato su
-/// qualunque desktop, e qui serve una sola chiamata. Il PIN non passa mai per la
-/// riga di comando ne' per la history della shell.
-///
-/// Per popolare la voce:
-/// `secret-tool store --label='CIE PIN' service cie`
-///
-/// Qualsiasi intoppo (binario assente, voce mancante, portachiavi bloccato)
-/// ricade silenziosamente sul prompt interattivo.
-fn pin_da_portachiavi() -> Option<String> {
-    let out = Command::new("secret-tool")
-        .args(["lookup", "service", "cie"])
-        .output()
-        .ok()?;
-
-    if !out.status.success() {
-        return None;
-    }
-
-    let pin = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (!pin.is_empty()).then_some(pin)
-}
-
-/// Ottiene il PIN: argomento esplicito, poi portachiavi, poi prompt a video.
-fn ottieni_pin(pin: Option<String>) -> Result<String> {
-    if let Some(p) = pin {
-        return Ok(p);
-    }
-    if let Some(p) = pin_da_portachiavi() {
-        println!("  PIN recuperato dal portachiavi di sistema.");
-        return Ok(p);
-    }
-    print!("  Inserisci PIN (8 cifre): ");
-    io::stdout().flush()?;
-    Ok(rpassword::read_password()?)
-}
 
 /// Esegue l'autenticazione con PIN e legge i dati protetti
 pub fn execute(pin: Option<String>, dump_cert: Option<String>) -> Result<()> {
@@ -108,12 +69,7 @@ pub fn execute(pin: Option<String>, dump_cert: Option<String>) -> Result<()> {
     // A differenza del middleware ufficiale qui servono tutte e 8 le cifre: il
     // C++ ne tiene 4 in una cache su disco (IAS::GetFirstPIN) e chiede solo le
     // altre 4, ed e' il motivo per cui pretende l'app Java di registrazione.
-    let pin = ottieni_pin(pin)?;
-
-    if pin.len() != 8 || !pin.chars().all(|c| c.is_ascii_digit()) {
-        println!("  ✗ Il PIN deve essere di 8 cifre numeriche.");
-        return Ok(());
-    }
+    let pin = super::ottieni_pin(pin)?;
 
     match sm.verify_pin(&card, &pin) {
         Ok(()) => println!("  ✓ PIN corretto, autenticazione riuscita.\n"),

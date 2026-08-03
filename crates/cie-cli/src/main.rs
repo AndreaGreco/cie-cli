@@ -40,6 +40,20 @@ enum Commands {
         #[arg(long, value_name = "FILE")]
         dump_cert: Option<String>,
     },
+
+    /// Firma il digest SHA-256 di un file con la chiave della carta
+    Sign {
+        /// File da firmare
+        file: String,
+
+        /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
+        #[arg(short, long)]
+        pin: Option<String>,
+
+        /// Dove scrivere la firma (default: <file>.sig)
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -65,5 +79,6 @@ fn main() -> Result<()> {
         Commands::Info => commands::info::execute(),
         Commands::PcscTest => commands::pcsc_test::execute(),
         Commands::Auth { pin, dump_cert } => commands::auth::execute(pin, dump_cert),
+        Commands::Sign { file, pin, output } => commands::sign::execute(file, pin, output),
     }
 }
