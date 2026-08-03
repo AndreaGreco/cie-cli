@@ -74,8 +74,8 @@ impl DatiTitolare {
         }
 
         // Se non abbiamo nome/cognome separati, proviamo a estrarli dal CN
-        if dati.nome.is_none() || dati.cognome.is_none() {
-            if let Some(ref cn) = dati.nome_completo {
+        if (dati.nome.is_none() || dati.cognome.is_none())
+            && let Some(ref cn) = dati.nome_completo {
                 // Il CN della CIE è spesso nel formato "COGNOME/NOME" o "COGNOME NOME"
                 if let Some((cognome, nome)) = cn.split_once('/') {
                     if dati.cognome.is_none() {
@@ -86,12 +86,11 @@ impl DatiTitolare {
                     }
                 }
             }
-        }
 
         // Cerca il codice fiscale anche nelle estensioni del certificato
         // (Subject Alternative Name può contenere info aggiuntive)
-        if dati.codice_fiscale.is_none() {
-            if let Some(ref cn) = dati.nome_completo {
+        if dati.codice_fiscale.is_none()
+            && let Some(ref cn) = dati.nome_completo {
                 // A volte il CF è nell'ultima parte del CN
                 let parts: Vec<&str> = cn.split('/').collect();
                 for part in parts {
@@ -105,7 +104,6 @@ impl DatiTitolare {
                     }
                 }
             }
-        }
 
         Some(dati)
     }

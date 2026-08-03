@@ -36,12 +36,14 @@ impl CieType {
             // STM
             (CieType::STM, &[0x80, 0x66, 0x47, 0x50, 0x00, 0xB8, 0x00, 0x7F][..]),
             (CieType::STM, &[0x80, 0x80, 0x01, 0x01][..]),
+            (CieType::STM, &[0x80, 0x01, 0x80, 0x66, 0x47, 0x50, 0x00, 0xB8, 0x00, 0x94][..]),
             // Actalis (vari pattern)
             (CieType::Actalis, &[0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A, 0x34, 0x41][..]),
             (CieType::Actalis, &[0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A, 0x34, 0x43][..]),
             (CieType::Actalis, &[0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A, 0x34, 0x4C][..]),
             // Bit4Id (vari pattern)
             (CieType::Bit4Id, &[0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A, 0x34, 0x42][..]),
+            (CieType::Bit4Id, &[0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A, 0x34, 0x44][..]),
             (CieType::Bit4Id, &[0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A, 0x34, 0x49][..]),
         ];
 
@@ -62,9 +64,19 @@ impl CieType {
         atr.windows(pattern.len()).any(|w| w == pattern)
     }
 
-    /// Ritorna true se questa CIE richiede SELECT MF prima di SELECT IAS
-    pub fn needs_select_mf(&self) -> bool {
-        matches!(self, CieType::NXP)
+    /// Ritorna true se la carta si prepara con **solo** SELECT MF, senza AID.
+    ///
+    /// `IAS::SelectAID_IAS` (IAS.cpp:346) divide le carte in due famiglie usando
+    /// l'ordinamento dell'enum `CIE_Type` (ATR.h:11):
+    /// `Unknown=0, Gemalto=1, STM=2, NXP=3, ACTALIS=4, BIT4ID=5`.
+    ///
+    /// - `type >= CIE_NXP` (NXP, Actalis, Bit4Id): SELECT MF e basta
+    /// - `type < CIE_NXP` (Gemalto, STM): SELECT dell'AID IAS
+    ///
+    /// Mandare un SELECT AID a una carta della prima famiglia risponde 6A82 e
+    /// lascia attivo il DF sbagliato per i GET DATA successivi.
+    pub fn selects_mf_only(&self) -> bool {
+        matches!(self, CieType::NXP | CieType::Actalis | CieType::Bit4Id)
     }
 }
 
@@ -153,36 +165,6 @@ impl CieApdu {
         ]
     }
 
-    /// VERIFY PIN: Verifica il PIN
-    pub fn verify_pin(pin: &str) -> Vec<u8> {
-        let mut apdu = vec![
-            0x00, // CLA
-            0x20, // INS - VERIFY
-            0x00, // P1
-            0x01, // P2 - PIN reference (0x01 per CIE)
-            0x08, // Lc - PIN length (sempre 8)
-        ];
-
-        // Pad del PIN a 8 bytes con 0xFF
-        let pin_bytes = pin.as_bytes();
-        let mut pin_padded = [0xFF; 8];
-        let len = pin_bytes.len().min(8);
-        pin_padded[..len].copy_from_slice(&pin_bytes[..len]);
-
-        apdu.extend_from_slice(&pin_padded);
-        apdu
-    }
-
-    /// GET DATA: Ottiene dati dalla carta (es. dati anagrafici)
-    pub fn get_data(tag: u16) -> Vec<u8> {
-        vec![
-            0x00, // CLA
-            0xCA, // INS - GET DATA
-            (tag >> 8) as u8,   // P1 - Tag MSB
-            (tag & 0xFF) as u8, // P2 - Tag LSB
-            0x00, // Le - Max expected length
-        ]
-    }
 }
 
 /// Helper per operazioni comuni sulla CIE
@@ -193,58 +175,44 @@ pub struct CieCard<'a> {
 }
 
 impl<'a> CieCard<'a> {
-    /// Crea un wrapper per operazioni CIE.
-    /// Esegue la selezione dell'applicazione IAS (sequenza dal middleware C++).
+    /// Prepara la carta selezionando il DF corretto.
+    ///
+    /// Segue `IAS::SelectAID_IAS`: la famiglia della carta decide se si manda un
+    /// SELECT MF o un SELECT dell'AID IAS. Sbagliare qui lascia attivo il DF
+    /// sbagliato e i GET DATA successivi rispondono con dati incoerenti.
     pub fn new(card: &'a PcscCard) -> Result<Self> {
-        use tracing::{debug, info, warn};
+        use tracing::{debug, info};
 
-        // Ottieni ATR e determina tipo CIE
         let atr = card.get_atr()?;
         let cie_type = CieType::from_atr(&atr);
-        info!("Tipo CIE rilevato: {:?}", cie_type);
+        info!("Tipo CIE rilevato: {:?} (ATR {})", cie_type, hex::encode(&atr));
 
-        let cie = Self {
-            card,
-            authenticated: false,
-            cie_type,
+        if cie_type == CieType::Unknown {
+            return Err(crate::error::CieError::Protocol(format!(
+                "ATR non riconosciuto: {}", hex::encode(&atr)
+            )));
+        }
+
+        // Due selezioni in sequenza, come CIEtemplateLogin (CIEP11Template.cpp:379):
+        // prima l'applicazione IAS, poi quella CIE. Il PIN e i file protetti
+        // vivono nel DF della CIE: fermarsi alla prima fa rispondere 6985.
+        // Con dati vuoti l'APDU non porta il byte Lc: solo i 4 byte di header.
+        let primo = if cie_type.selects_mf_only() {
+            (CieApdu::select_mf(), "SELECT MF")
+        } else {
+            (CieApdu::select_ias(), "SELECT IAS AID")
         };
 
-        // Sequenza dal C++ (SelectAID_IAS):
-        // 1. Per NXP: prima SELECT MF
-        // 2. Per tutti: SELECT IAS_AID (0x00 0xa4 0x04 0x0c + IAS_AID)
-
-        if cie_type.needs_select_mf() {
-            debug!("SELECT MF (richiesto per NXP)...");
-            let mf_resp = card.transmit(&CieApdu::select_mf());
-            debug!("SELECT MF response: {:?}", mf_resp);
+        for (apdu, cosa) in [primo, (CieApdu::select_cie(), "SELECT CIE AID")] {
+            debug!("{} per {:?}...", cosa, cie_type);
+            let (_, sw) = card.transmit_raw(&apdu)?;
+            if sw != 0x9000 {
+                return Err(crate::error::CieError::Card { sw });
+            }
+            info!("{} riuscito", cosa);
         }
 
-        // SELECT IAS AID
-        debug!("SELECT IAS AID...");
-        let ias_resp = card.transmit(&CieApdu::select_ias());
-        match &ias_resp {
-            Ok(resp) => {
-                info!("IAS selezionato con successo ({}b)", resp.len());
-            }
-            Err(e) => {
-                warn!("SELECT IAS fallito: {:?}", e);
-
-                // Prova SELECT CIE AID come fallback
-                debug!("Tentativo SELECT CIE AID...");
-                let cie_resp = card.transmit(&CieApdu::select_cie());
-                match &cie_resp {
-                    Ok(resp) => {
-                        info!("CIE AID selezionato ({}b)", resp.len());
-                    }
-                    Err(e2) => {
-                        warn!("Nessun AID selezionabile: IAS={:?}, CIE={:?}", e, e2);
-                        // Continua comunque, alcuni file potrebbero essere leggibili
-                    }
-                }
-            }
-        }
-
-        Ok(cie)
+        Ok(Self { card, authenticated: false, cie_type })
     }
 
     /// Ritorna il tipo di CIE rilevato
@@ -267,7 +235,7 @@ impl<'a> CieCard<'a> {
             // 9000 = OK, 62xx = warning (es. 6282 = EOF)
             Ok(data)
         } else {
-            Err(crate::error::CieError::SigningError(format!("Errore SELECT FILE: {:04X}", sw)))
+            Err(crate::error::CieError::Card { sw })
         }
     }
 
@@ -288,7 +256,7 @@ impl<'a> CieCard<'a> {
 
         // 9000 = OK, 62xx = warning
         if sw != 0x9000 && (sw & 0xFF00) != 0x6200 {
-            return Err(crate::error::CieError::SigningError(format!("SELECT FILE {:04X} fallito: {:04X}", file_id as u16, sw)));
+            return Err(crate::error::CieError::Card { sw });
         }
 
         self.read_current_file()
@@ -349,90 +317,6 @@ impl<'a> CieCard<'a> {
     pub fn read_binary(&self, offset: u16, length: u8) -> Result<Vec<u8>> {
         let apdu = CieApdu::read_binary(offset, length);
         self.card.transmit(&apdu)
-    }
-
-    /// Verifica il PIN e ritorna il risultato dettagliato
-    ///
-    /// Ritorna:
-    /// - Ok(()) se il PIN è corretto
-    /// - Err con i tentativi rimanenti se il PIN è sbagliato
-    /// - Err se il PIN è bloccato o altro errore
-    ///
-    /// NOTA: La CIE richiede normalmente Secure Messaging per VERIFY.
-    /// Questo metodo tenta prima senza SM, poi riporta l'errore.
-    pub fn verify_pin(&mut self, pin: &str) -> Result<()> {
-        use tracing::{debug, warn, info};
-
-        // Valida il PIN (deve essere 8 cifre)
-        if pin.len() != 8 || !pin.chars().all(|c| c.is_ascii_digit()) {
-            return Err(crate::error::CieError::SigningError(
-                "PIN deve essere 8 cifre numeriche".into()
-            ));
-        }
-
-        let apdu = CieApdu::verify_pin(pin);
-        debug!("VERIFY PIN APDU: {:02X?}", apdu);
-
-        let (_, sw) = self.card.transmit_raw(&apdu)?;
-        debug!("VERIFY PIN SW: {:04X}", sw);
-
-        match sw {
-            0x9000 => {
-                info!("PIN verificato correttamente!");
-                self.authenticated = true;
-                Ok(())
-            }
-            0x6983 => {
-                // PIN bloccato
-                warn!("PIN BLOCCATO!");
-                Err(crate::error::CieError::SigningError(
-                    "PIN bloccato. Usa il PUK per sbloccarlo.".into()
-                ))
-            }
-            sw if sw >= 0x63C0 && sw <= 0x63CF => {
-                // PIN errato, tentativi rimanenti = sw - 0x63C0
-                let remaining = sw - 0x63C0;
-                warn!("PIN errato! Tentativi rimanenti: {}", remaining);
-                Err(crate::error::CieError::SigningError(
-                    format!("PIN errato. Tentativi rimanenti: {}", remaining)
-                ))
-            }
-            0x6982 => {
-                // Security status not satisfied - serve Secure Messaging
-                warn!("Richiesto Secure Messaging per VERIFY PIN");
-                Err(crate::error::CieError::SigningError(
-                    "Autenticazione richiede Secure Messaging (non ancora implementato)".into()
-                ))
-            }
-            0x6700 | 0x6300 => {
-                // Wrong length / Authentication failed
-                warn!("PIN errato o formato non valido");
-                Err(crate::error::CieError::SigningError("PIN errato".into()))
-            }
-            _ => {
-                warn!("Errore VERIFY PIN: {:04X}", sw);
-                Err(crate::error::CieError::SigningError(
-                    format!("Errore verifica PIN: {:04X}", sw)
-                ))
-            }
-        }
-    }
-
-    /// Ritorna i tentativi PIN rimanenti (se leggibili senza autenticazione)
-    pub fn get_pin_retries(&self) -> Option<u8> {
-        use tracing::debug;
-
-        // Alcuni tipi di CIE permettono di leggere i tentativi con un VERIFY vuoto
-        // 00 20 00 01 00 -> ritorna 63Cx dove x = tentativi
-        let apdu = vec![0x00, 0x20, 0x00, 0x01, 0x00];
-
-        if let Ok((_, sw)) = self.card.transmit_raw(&apdu) {
-            debug!("GET PIN RETRIES SW: {:04X}", sw);
-            if sw >= 0x63C0 && sw <= 0x63CF {
-                return Some((sw - 0x63C0) as u8);
-            }
-        }
-        None
     }
 
     /// Verifica se il PIN è stato inserito

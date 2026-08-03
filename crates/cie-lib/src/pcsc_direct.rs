@@ -18,7 +18,7 @@ impl PcscContext {
     pub fn new() -> Result<Self> {
         info!("Inizializzazione contesto PC/SC");
         let ctx = Context::establish(Scope::User)
-            .map_err(|e| CieError::Pkcs11InitError(format!("Errore PC/SC: {:?}", e)))?;
+            .map_err(|e| CieError::Transport(format!("contesto PC/SC: {:?}", e)))?;
         Ok(Self { ctx })
     }
 
@@ -88,7 +88,7 @@ impl PcscCard {
             Ok(data)
         } else {
             warn!("Status word non OK: {:04X}", sw);
-            Err(CieError::SigningError(format!("Errore carta: {:04X}", sw)))
+            Err(CieError::Card { sw })
         }
     }
 
@@ -99,13 +99,13 @@ impl PcscCard {
 
         let mut response_buf = [0; MAX_BUFFER_SIZE];
         let response = self.card.transmit(apdu, &mut response_buf)
-            .map_err(|e| CieError::SigningError(format!("Errore trasmissione APDU: {:?}", e)))?;
+            .map_err(|e| CieError::Transport(format!("{:?}", e)))?;
 
         debug!("RX: {}", hex::encode(response));
 
         // Verifica lo status word (ultimi 2 bytes)
         if response.len() < 2 {
-            return Err(CieError::SigningError("Risposta APDU troppo corta".into()));
+            return Err(CieError::Protocol("Risposta APDU troppo corta: manca lo status word".into()));
         }
 
         let data = response[..response.len() - 2].to_vec();
@@ -120,10 +120,37 @@ impl PcscCard {
     pub fn get_atr(&self) -> Result<Vec<u8>> {
         let mut atr_buf = [0; MAX_ATR_SIZE];
         let atr = self.card.get_attribute(Attribute::AtrString, &mut atr_buf)
-            .map_err(|e| CieError::SigningError(format!("Errore lettura ATR: {:?}", e)))?;
+            .map_err(|e| CieError::Transport(format!("lettura ATR: {:?}", e)))?;
 
         debug!("ATR: {}", hex::encode(atr));
         Ok(atr.to_vec())
+    }
+
+    /// Invia APDU gestendo automaticamente GET RESPONSE (61xx) e retry (6Cxx)
+    pub fn transmit_auto(&self, apdu: &[u8]) -> Result<(Vec<u8>, u16)> {
+        let (mut data, mut sw) = self.transmit_raw(apdu)?;
+
+        // Se SW1=0x61, ci sono più dati da leggere con GET RESPONSE
+        while (sw >> 8) == 0x61 {
+            let le = (sw & 0xFF) as u8;
+            let get_response = vec![0x00, 0xC0, 0x00, 0x00, le];
+            let (more_data, new_sw) = self.transmit_raw(&get_response)?;
+            data.extend_from_slice(&more_data);
+            sw = new_sw;
+        }
+
+        // Se SW1=0x6C, riprova con Le corretto
+        if (sw >> 8) == 0x6C && apdu.len() >= 5 {
+            let le = (sw & 0xFF) as u8;
+            let mut new_apdu = apdu.to_vec();
+            // Imposta Le corretto (ultimo byte)
+            if let Some(last) = new_apdu.last_mut() {
+                *last = le;
+            }
+            return self.transmit_raw(&new_apdu);
+        }
+
+        Ok((data, sw))
     }
 }
 

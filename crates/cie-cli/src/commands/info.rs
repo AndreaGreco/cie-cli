@@ -91,8 +91,8 @@ pub fn execute() -> Result<()> {
                 println!("    Primi 32 bytes: {}", hex::encode(&data[..data.len().min(32)]));
 
                 // Prova a estrarre dati dal certificato X.509
-                if let Some(dati) = cie_lib::DatiTitolare::from_certificate_der(&data) {
-                    if dati.nome.is_some() || dati.cognome.is_some() || dati.codice_fiscale.is_some() {
+                if let Some(dati) = cie_lib::DatiTitolare::from_certificate_der(&data)
+                    && (dati.nome.is_some() || dati.cognome.is_some() || dati.codice_fiscale.is_some()) {
                         println!("    ═══ Dati Titolare ═══");
                         if let Some(ref nome) = dati.nome {
                             println!("      Nome: {}", nome);
@@ -104,7 +104,6 @@ pub fn execute() -> Result<()> {
                             println!("      CF: {}", cf);
                         }
                     }
-                }
             }
         }
         Err(e) => println!("Errore: {}", e),

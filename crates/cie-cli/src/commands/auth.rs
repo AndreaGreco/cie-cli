@@ -1,137 +1,170 @@
 //! Comando per autenticarsi con la CIE (verifica PIN)
 
 use anyhow::Result;
-use cie_lib::{PcscContext, CieCard, CieType};
+use cie_lib::{CieCard, CieType, PcscContext, SecureMessaging};
 use std::io::{self, Write};
+use std::process::Command;
+
+/// Un passo dell'handshake: nome da mostrare e metodo da invocare.
+type Passo = (&'static str, fn(&mut SecureMessaging, &cie_lib::PcscCard) -> cie_lib::Result<()>);
+
+/// Recupera il PIN dal portachiavi di sistema (`secret-tool lookup service cie`).
+///
+/// Delega al binario di libsecret invece di parlare D-Bus: e' gia' installato su
+/// qualunque desktop, e qui serve una sola chiamata. Il PIN non passa mai per la
+/// riga di comando ne' per la history della shell.
+///
+/// Per popolare la voce:
+/// `secret-tool store --label='CIE PIN' service cie`
+///
+/// Qualsiasi intoppo (binario assente, voce mancante, portachiavi bloccato)
+/// ricade silenziosamente sul prompt interattivo.
+fn pin_da_portachiavi() -> Option<String> {
+    let out = Command::new("secret-tool")
+        .args(["lookup", "service", "cie"])
+        .output()
+        .ok()?;
+
+    if !out.status.success() {
+        return None;
+    }
+
+    let pin = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (!pin.is_empty()).then_some(pin)
+}
+
+/// Ottiene il PIN: argomento esplicito, poi portachiavi, poi prompt a video.
+fn ottieni_pin(pin: Option<String>) -> Result<String> {
+    if let Some(p) = pin {
+        return Ok(p);
+    }
+    if let Some(p) = pin_da_portachiavi() {
+        println!("  PIN recuperato dal portachiavi di sistema.");
+        return Ok(p);
+    }
+    print!("  Inserisci PIN (8 cifre): ");
+    io::stdout().flush()?;
+    Ok(rpassword::read_password()?)
+}
 
 /// Esegue l'autenticazione con PIN e legge i dati protetti
-pub fn execute(pin: Option<String>) -> Result<()> {
+pub fn execute(pin: Option<String>, dump_cert: Option<String>) -> Result<()> {
     println!("\n╔══════════════════════════════════════╗");
     println!("║       AUTENTICAZIONE CIE             ║");
     println!("╚══════════════════════════════════════╝\n");
 
-    // Crea contesto PC/SC
     let ctx = PcscContext::new()?;
 
-    // Connetti alla CIE
     println!("Connessione alla CIE...");
     let card = ctx.connect_to_cie()?;
     println!("✓ Connesso!\n");
 
-    // Leggi ATR e tipo
     let atr = card.get_atr()?;
     let cie_type = CieType::from_atr(&atr);
     println!("Tipo CIE: {:?}", cie_type);
 
-    // Inizializza CieCard
-    let mut cie_card = CieCard::new(&card)?;
-    println!("✓ Applicazione CIE inizializzata!\n");
+    // Seleziona IAS e poi CIE: senza la seconda la VERIFY PIN risponde 6985.
+    CieCard::new(&card)?;
+    println!("✓ Applicazione CIE selezionata\n");
 
-    // Controlla tentativi rimanenti
-    if let Some(retries) = cie_card.get_pin_retries() {
-        println!("⚠ Tentativi PIN rimanenti: {}", retries);
-        if retries <= 1 {
-            println!("⚠ ATTENZIONE: Pochi tentativi! Se sbagli il PIN verrà bloccato!");
+    println!("═══ Inizializzazione Secure Messaging ═══");
+
+    let mut sm = SecureMessaging::new(cie_type);
+
+    // L'ordine conta: i primi due passi sono in chiaro, il canale si apre con lo
+    // scambio DH, e solo dentro il canale si leggono chiave del chip e DAPP.
+    let passi: [Passo; 5] = [
+        ("Parametri Diffie-Hellman", SecureMessaging::init_dh_params),
+        ("Parametri CA external auth", SecureMessaging::init_ext_auth_key_param),
+        ("Scambio chiavi DH", SecureMessaging::dh_key_exchange),
+        ("Chiave pubblica del chip", SecureMessaging::read_dapp_pub_key),
+        ("Autenticazione mutua (DAPP)", SecureMessaging::dapp),
+    ];
+
+    for (i, (nome, passo)) in passi.iter().enumerate() {
+        print!("  {}. {}... ", i + 1, nome);
+        io::stdout().flush()?;
+        match passo(&mut sm, &card) {
+            Ok(()) => println!("✓"),
+            Err(e) => {
+                println!("✗");
+                println!("\n  Errore: {}", e);
+                println!("  Il canale sicuro non e' stato stabilito, mi fermo qui.");
+                return Ok(());
+            }
         }
     }
 
-    // Ottieni il PIN (da argomento o da input nascosto)
-    let pin = match pin {
-        Some(p) => p,
-        None => {
-            print!("\nInserisci PIN (8 cifre): ");
-            io::stdout().flush()?;
-
-            // Input nascosto con rpassword
-            rpassword::read_password()?
-        }
-    };
-
-    // Valida formato PIN
-    if pin.len() != 8 {
-        println!("✗ Errore: Il PIN deve essere di 8 cifre");
-        return Ok(());
-    }
-    if !pin.chars().all(|c| c.is_ascii_digit()) {
-        println!("✗ Errore: Il PIN deve contenere solo cifre");
-        return Ok(());
-    }
+    println!("\n✓ Canale sicuro attivo e chip autenticato.");
 
     println!("\n═══ Verifica PIN ═══");
-    match cie_card.verify_pin(&pin) {
-        Ok(()) => {
-            println!("✓ PIN corretto! Autenticazione riuscita.\n");
 
-            // Ora proviamo a leggere i dati protetti
-            println!("═══ Lettura Dati Protetti ═══");
+    // ponytail: niente pre-check del contatore tentativi. La VERIFY con campo
+    // dati vuoto risponde 6988 su questa carta, e farebbe avanzare l'SSC del
+    // comando appena prima della verifica vera. I tentativi rimasti arrivano
+    // comunque dentro il 63Cx quando il PIN e' sbagliato.
+    //
+    // Il PIN si chiede solo ora: se il canale non si apre, non serve digitarlo.
+    // A differenza del middleware ufficiale qui servono tutte e 8 le cifre: il
+    // C++ ne tiene 4 in una cache su disco (IAS::GetFirstPIN) e chiede solo le
+    // altre 4, ed e' il motivo per cui pretende l'app Java di registrazione.
+    let pin = ottieni_pin(pin)?;
 
-            // Seriale CIE (0x1002)
-            print!("  Seriale CIE (0x1002): ");
-            match cie_card.read_seriale() {
-                Ok(data) => {
-                    if data.is_empty() {
-                        println!("(vuoto)");
-                    } else {
-                        // Il seriale è nei primi 9 bytes come stringa
-                        let serial_len = data.len().min(9);
-                        if let Ok(s) = std::str::from_utf8(&data[..serial_len]) {
-                            println!("{}", s.trim_end_matches('\0'));
-                        } else {
-                            println!("HEX: {}", hex::encode(&data));
-                        }
-                    }
-                }
-                Err(e) => println!("Errore: {}", e),
-            }
+    if pin.len() != 8 || !pin.chars().all(|c| c.is_ascii_digit()) {
+        println!("  ✗ Il PIN deve essere di 8 cifre numeriche.");
+        return Ok(());
+    }
 
-            // Certificato CIE (0x1003) - per estrarre nome/cognome
-            print!("  Certificato CIE (0x1003): ");
-            match cie_card.read_cert_cie() {
-                Ok(data) => {
-                    if data.is_empty() {
-                        println!("(vuoto)");
-                    } else {
-                        println!("{} bytes", data.len());
-
-                        // Prova a estrarre dati dal certificato X.509
-                        if let Some(dati) = cie_lib::DatiTitolare::from_certificate_der(&data) {
-                            println!("\n═══ DATI TITOLARE ═══");
-                            if let Some(ref nome) = dati.nome {
-                                println!("  Nome: {}", nome);
-                            }
-                            if let Some(ref cognome) = dati.cognome {
-                                println!("  Cognome: {}", cognome);
-                            }
-                            if let Some(ref cf) = dati.codice_fiscale {
-                                println!("  Codice Fiscale: {}", cf);
-                            }
-                        }
-                    }
-                }
-                Err(e) => println!("Errore: {}", e),
-            }
-        }
+    match sm.verify_pin(&card, &pin) {
+        Ok(()) => println!("  ✓ PIN corretto, autenticazione riuscita.\n"),
         Err(e) => {
-            let err_msg = format!("{}", e);
-            if err_msg.contains("Secure Messaging") {
-                println!("✗ La CIE richiede Secure Messaging per la verifica PIN.");
-                println!();
-                println!("  ⚠ Il protocollo Secure Messaging non è ancora implementato.");
-                println!("  Questo protocollo richiede:");
-                println!("    1. Scambio chiavi Diffie-Hellman con la carta");
-                println!("    2. Autenticazione mutua (DAPP)");
-                println!("    3. Crittografia 3DES/AES degli APDU");
-                println!();
-                println!("  Per ora puoi usare l'app CIE ID ufficiale per operazioni");
-                println!("  che richiedono il PIN.");
-            } else {
-                println!("✗ {}", e);
+            println!("  ✗ {}\n", e);
+            return Ok(());
+        }
+    }
+
+    println!("═══ Lettura Dati Protetti ═══");
+
+    print!("  Seriale CIE (0x1002): ");
+    match sm.read_file(&card, 0x1002) {
+        Ok(data) if data.is_empty() => println!("(vuoto)"),
+        Ok(data) => {
+            let fino = data.len().min(9);
+            match std::str::from_utf8(&data[..fino]) {
+                Ok(s) => println!("{}", s.trim_end_matches('\0')),
+                Err(_) => println!("HEX {}", hex::encode(&data)),
             }
         }
+        Err(e) => println!("errore: {}", e),
+    }
+
+    print!("  Certificato CIE (0x1003): ");
+    match sm.read_file(&card, 0x1003) {
+        Ok(data) if data.is_empty() => println!("(vuoto)"),
+        Ok(data) => {
+            println!("{} byte", data.len());
+            if let Some(percorso) = &dump_cert {
+                std::fs::write(percorso, &data)?;
+                println!("  Certificato salvato in {}", percorso);
+            }
+            if let Some(dati) = cie_lib::DatiTitolare::from_certificate_der(&data) {
+                println!("\n═══ DATI TITOLARE ═══");
+                for (etichetta, valore) in [
+                    ("Nome", &dati.nome),
+                    ("Cognome", &dati.cognome),
+                    ("Codice Fiscale", &dati.codice_fiscale),
+                ] {
+                    if let Some(v) = valore {
+                        println!("  {}: {}", etichetta, v);
+                    }
+                }
+            }
+        }
+        Err(e) => println!("errore: {}", e),
     }
 
     println!("\n╔══════════════════════════════════════╗");
-    println!("║           OPERAZIONE COMPLETATA      ║");
+    println!("║        OPERAZIONE COMPLETATA         ║");
     println!("╚══════════════════════════════════════╝");
 
     Ok(())

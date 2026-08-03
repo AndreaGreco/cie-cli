@@ -8,7 +8,6 @@ description = "Libreria core per la Carta d'Identità Elettronica italiana"
 
 [dependencies]
 thiserror.workspace = true
-anyhow.workspace = true
 tracing.workspace = true
 serde.workspace = true
 hex = "0.4"
@@ -20,12 +19,6 @@ pcsc = "2.8"
 
 # Crittografia per Secure Messaging
 des = "0.8"           # 3DES
-aes = "0.8"           # AES-128
-cbc = "0.1"           # CBC mode
 sha2 = "0.10"         # SHA-256
-hmac = "0.12"         # HMAC
 num-bigint = "0.4"    # Big integers per RSA/DH
 rand = "0.8"          # Random number generation
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

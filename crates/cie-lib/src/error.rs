@@ -5,60 +5,54 @@ use thiserror::Error;
 /// Tipo Result specializzato per cie-lib
 pub type Result<T> = std::result::Result<T, CieError>;
 
-/// Errori possibili durante l'uso della CIE
+/// Errori possibili durante l'uso della CIE.
+///
+/// Le varianti distinguono *di chi* e' la colpa, perche' la risposta e' diversa:
+/// la carta ha rifiutato ([`CieError::Card`]), il lettore non risponde
+/// ([`CieError::Transport`]), oppure abbiamo costruito male noi un comando
+/// ([`CieError::Protocol`]).
 #[derive(Error, Debug)]
 pub enum CieError {
-    #[error("Libreria PKCS#11 non trovata: {path}")]
-    Pkcs11LibraryNotFound { path: String },
-
-    #[error("Errore inizializzazione PKCS#11: {0}")]
-    Pkcs11InitError(String),
-
-    #[error("Libreria non trovata: {0}")]
-    LibraryNotFound(String),
-
-    #[error("Input non valido: {0}")]
-    InvalidInput(String),
-
     #[error("Nessun lettore di smart card trovato")]
     NoReaderFound,
 
     #[error("Nessuna CIE inserita nel lettore")]
     NoCiePresent,
 
-    #[error("CIE non abilitata. Esegui prima: cie enable")]
-    CieNotEnabled,
+    /// Errore del livello PC/SC: lettore scollegato, daemon assente, carta estratta.
+    #[error("Errore di comunicazione con il lettore: {0}")]
+    Transport(String),
 
-    #[error("PIN errato. Tentativi rimasti: {attempts_left}")]
-    WrongPin { attempts_left: u32 },
+    /// La carta ha risposto con uno status word diverso da 9000.
+    #[error("La carta ha risposto {sw:04X}")]
+    Card { sw: u16 },
+
+    /// Struttura APDU/ASN.1 inattesa: di norma un bug nostro, non della carta.
+    #[error("Errore di protocollo: {0}")]
+    Protocol(String),
+
+    #[error("Input non valido: {0}")]
+    InvalidInput(String),
 
     #[error("PIN errato. Tentativi rimasti: {0}")]
     PinIncorrect(u32),
 
-    #[error("PIN bloccato. Usa il PUK per sbloccare")]
+    #[error("PIN bloccato. Serve il PUK per sbloccarlo")]
     PinBlocked,
 
-    #[error("PIN bloccato permanentemente")]
-    PinLocked,
+    #[error("Secure Messaging non attivo")]
+    SmNotActive,
 
-    #[error("Errore durante la firma: {0}")]
-    SigningError(String),
+    /// Il MAC calcolato non coincide con quello della carta: canale compromesso
+    /// oppure SSC/chiavi di sessione disallineati.
+    #[error("MAC della risposta non valido: canale SM non integro")]
+    MacMismatch,
 
-    #[error("Errore lettura certificato: {0}")]
-    CertificateError(String),
-
-    #[error("Sessione non valida o scaduta")]
-    InvalidSession,
-
-    #[error("Operazione annullata")]
-    Cancelled,
+    /// La carta non ha superato l'autenticazione mutua: non e' una CIE genuina,
+    /// oppure il canale e' stato manomesso.
+    #[error("Autenticazione del chip fallita")]
+    ChipAuthFailed,
 
     #[error("Errore I/O: {0}")]
     IoError(#[from] std::io::Error),
-}
-
-impl CieError {
-    pub fn pkcs11_msg(msg: impl Into<String>) -> Self {
-        CieError::SigningError(msg.into())
-    }
 }

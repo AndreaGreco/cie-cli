@@ -30,9 +30,15 @@ enum Commands {
 
     /// Autentica con PIN e legge dati protetti
     Auth {
-        /// PIN (8 cifre). Se non specificato, verrà richiesto interattivamente.
+        /// PIN (8 cifre). SCONSIGLIATO: resta nella history della shell e in `ps`.
+        /// Senza questo flag il PIN si legge dal portachiavi
+        /// (`secret-tool store --label='CIE PIN' service cie`) o si chiede a video.
         #[arg(short, long)]
         pin: Option<String>,
+
+        /// Salva su file il certificato letto dalla carta (DER).
+        #[arg(long, value_name = "FILE")]
+        dump_cert: Option<String>,
     },
 }
 
@@ -58,6 +64,6 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Info => commands::info::execute(),
         Commands::PcscTest => commands::pcsc_test::execute(),
-        Commands::Auth { pin } => commands::auth::execute(pin),
+        Commands::Auth { pin, dump_cert } => commands::auth::execute(pin, dump_cert),
     }
 }
