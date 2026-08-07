@@ -1,5 +1,8 @@
 /target
 
+# L'override locale di underskrift: nel repo ci sta solo l'esempio.
+/.cargo/config.toml
+
 # Lo scarico grezzo da Google Fonts: nel repo entrano solo i due pesi che
 # spediamo davvero, in crates/cie-gui/fonts/.
 /fonts/

@@ -10,9 +10,9 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-authors = ["Antonio Greco"]
+authors = ["Attilio Greco"]
 license = "MIT"
-repository = "https://github.com/agreco/cie-cli"
+repository = "https://github.com/AttilioGreco/cie-cli"
 description = "CLI e libreria per la Carta d'Identità Elettronica italiana"
 
 [workspace.dependencies]
@@ -40,6 +40,13 @@ cie-firma = { path = "crates/cie-firma" }
 
 # Fino a che il lavoro non e' a monte: /M nel dizionario di firma, tsp-ltv
 # dietro le sue feature, DocMDP implementato e il CAdES standalone (.p7m).
-# Fork: github.com/AttilioGreco/underskrift, branch fix/pades-conformance.
+# Il fork sta su git, non su un path locale: la CI di release deve poterlo
+# risolvere. Per lavorarci sopra in locale c'e' `.cargo/config.toml` (vedi
+# .cargo/config.toml.example).
 [patch.crates-io]
-underskrift = { path = "../underskrift" }
+underskrift = { git = "https://github.com/AttilioGreco/underskrift", branch = "fix/pades-conformance" }
+
+# Il profilo con cui 'dist' costruisce i binari di release
+[profile.dist]
+inherits = "release"
+lto = "thin"

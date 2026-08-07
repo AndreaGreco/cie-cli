@@ -10,6 +10,42 @@ description = "Interfaccia grafica per firmare documenti con la Carta d'Identit√
 name = "cie-gui"
 path = "src/main.rs"
 
+# La GUI non passa da 'dist': i suoi pacchetti (.dmg, .exe NSIS, .deb,
+# .AppImage) li fa cargo-packager, che sa costruire un bundle con l'icona.
+# 'dist' resta il canale della CLI.
+[package.metadata.dist]
+dist = false
+
+[package.metadata.packager]
+product-name = "Firma CIE"
+identifier = "it.crazylinux.cie-gui"
+category = "Utility"
+publisher = "Attilio Greco"
+homepage = "https://github.com/AttilioGreco/cie-cli"
+license-file = "../../LICENSE"
+before-packaging-command = "cargo build --release --bin cie-gui"
+icons = [
+	"icons/32x32.png",
+	"icons/128x128.png",
+	"icons/128x128@2x.png",
+	"icons/icon.icns",
+	"icons/icon.ico",
+]
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+
+# Il lettore di smart card e' l'unica dipendenza di sistema.
+[package.metadata.packager.deb]
+depends = ["libpcsclite1"]
+section = "utils"
+
+[package.metadata.packager.appimage]
+libs = ["libpcsclite.so.1"]
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+
 [dependencies]
 cie-firma.workspace = true
 cie-lib.workspace = true

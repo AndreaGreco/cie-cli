@@ -1,0 +1,7 @@
+# Copia questo file in .cargo/config.toml per compilare contro la copia di
+# lavoro locale di underskrift invece del fork su git.
+#
+# Attenzione: finche e attivo, Cargo.lock punta al path locale. Non committarlo
+# in quello stato, la CI di release non lo sa risolvere.
+[patch.crates-io]
+underskrift = { path = "../underskrift" }

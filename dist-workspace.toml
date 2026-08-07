@@ -1,0 +1,46 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.30.3"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "msi", "pkg"]
+# Target platforms to build apps for (Rust target-triple syntax).
+# Niente musl: pcsc si lega a libpcsclite a runtime, un binario statico non
+# troverebbe nessun lettore.
+targets = [
+	"x86_64-unknown-linux-gnu",
+	"aarch64-unknown-linux-gnu",
+	"x86_64-apple-darwin",
+	"aarch64-apple-darwin",
+	"x86_64-pc-windows-msvc",
+]
+# Whether to consider the binaries in a package for distribution (defaults true)
+dist = true
+# Whether to auto-include files like READMEs, LICENSEs, and CHANGELOGs (default true)
+auto-includes = true
+# Which actions to run on pull requests
+pr-run-mode = "skip"
+# Path strategy for shell/powershell installers:
+# 1) CIE_INSTALL_DIR override
+# 2) Linux-friendly user bin default
+install-path = ["$CIE_INSTALL_DIR/", "~/.local/bin"]
+# Whether to install an updater program
+install-updater = true
+
+# macOS .pkg installer (default /usr/local -> il binario finisce in /usr/local/bin)
+[dist.mac-pkg-config]
+identifier = "it.crazylinux.cie-cli"
+
+# Use native ARM runners instead of QEMU for aarch64 Linux targets
+[dist.github-custom-runners]
+aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
+
+# System dependencies needed for build
+[dist.dependencies.apt]
+libpcsclite-dev = '*'
+pkg-config = '*'

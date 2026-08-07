@@ -1,0 +1,85 @@
+# I bundle della GUI, che 'dist' non sa fare: .app dentro un .dmg su macOS,
+# installer NSIS su Windows, .deb e .AppImage su Linux.
+#
+# Parte a release pubblicata, non sul tag: cosi' la release l'ha gia' creata il
+# workflow di dist e qui restano solo gli upload. A mano si puo' lanciare con
+# workflow_dispatch passando il tag.
+name: Bundle GUI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag della release su cui caricare i bundle (es. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_PACKAGER_VERSION: "0.11.8"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            formats: deb,appimage
+          - os: macos-14
+            formats: app,dmg
+          - os: macos-13
+            formats: app,dmg
+          - os: windows-latest
+            formats: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+
+      # libpcsclite per la carta, libfuse2 perche' linuxdeploy monta l'AppImage
+      # per costruirla.
+      - name: Dipendenze di sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcsclite-dev pkg-config libfuse2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@${{ env.CARGO_PACKAGER_VERSION }}
+
+      # NO_STRIP: lo strip che linuxdeploy si porta dietro non digerisce una
+      # libpcsclite con la sezione .relr.dyn e fa fallire l'AppImage.
+      - name: Package
+        env:
+          NO_STRIP: "1"
+        run: cargo packager --release -p cie-gui --formats ${{ matrix.formats }} --verbose
+
+      - name: Upload dei bundle sulla release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(target/release/*.dmg target/release/*.deb target/release/*.AppImage target/release/*-setup.exe)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Nessun bundle prodotto in target/release" >&2
+            ls -la target/release >&2
+            exit 1
+          fi
+          printf 'Carico: %s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber

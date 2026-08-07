@@ -4,11 +4,20 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "CLI per la Carta d'Identità Elettronica italiana"
 
 [[bin]]
 name = "cie"
 path = "src/main.rs"
+
+# GUID stabili: WiX li usa per riconoscere un aggiornamento invece di una
+# seconda installazione affiancata. Non cambiarli mai.
+[package.metadata.wix]
+upgrade-guid = "482C7D11-6BCF-4DC5-BAFF-C227F53DAD27"
+path-guid = "8A0E8C2B-44B9-4181-B086-32B12BF610EA"
+license = false
+eula = false
 
 [dependencies]
 cie-lib.workspace = true

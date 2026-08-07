@@ -3,6 +3,10 @@
 //! A separate binary from `cie`: whoever uses the command line should not have
 //! to carry a GUI toolkit around.
 
+// On Windows a plain binary opens a console behind the window. In debug that
+// console is where the logs go, so only the shipped build hides it.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod job;
 mod preview;
 mod state;
