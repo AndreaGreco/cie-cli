@@ -33,8 +33,16 @@ pub struct Request {
 pub enum Message {
     /// Where we are, to be shown as is.
     Progress(String),
-    /// Done: the file written (for a detached signature, the signature file).
-    Done(PathBuf),
+    /// Done: the file written (for a detached signature, the signature file),
+    /// and whoever the certificate turned out to belong to.
+    ///
+    /// The holder rides back with the result because this is the only moment
+    /// it is knowable: the certificate lives behind the PIN, and the signer
+    /// that held it is dropped as this thread ends.
+    Done {
+        path: PathBuf,
+        holder: Option<cie_lib::DatiTitolare>,
+    },
     /// The error chain, already formatted.
     Failed(String),
 }
@@ -60,14 +68,14 @@ pub fn spawn(request: Request) -> Receiver<Message> {
     std::thread::spawn(move || {
         let outcome = run(&request, &tx);
         let _ = match outcome {
-            Ok(path) => tx.send(Message::Done(path)),
+            Ok((path, holder)) => tx.send(Message::Done { path, holder }),
             Err(e) => tx.send(Message::Failed(format!("{e:#}"))),
         };
     });
     rx
 }
 
-fn run(r: &Request, tx: &Sender<Message>) -> Result<PathBuf> {
+fn run(r: &Request, tx: &Sender<Message>) -> Result<(PathBuf, Option<cie_lib::DatiTitolare>)> {
     let progress = |s: Step| {
         let text = match s {
             Step::Connecting => "Connessione alla carta…",
@@ -100,7 +108,10 @@ fn run(r: &Request, tx: &Sender<Message>) -> Result<PathBuf> {
     std::fs::write(&r.output, &produced)
         .with_context(|| format!("scrittura di {}", r.output.display()))?;
 
-    Ok(r.output.clone())
+    let holder = cie_lib::DatiTitolare::from_certificate_der(
+        cie_firma::CryptoSigner::certificate_der(&signer),
+    );
+    Ok((r.output.clone(), holder))
 }
 
 /// The path proposed for the signed file, by signature kind.

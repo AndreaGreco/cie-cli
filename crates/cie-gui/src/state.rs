@@ -464,9 +464,9 @@ impl State {
                     };
                     self.phase = Phase::Running { step, label };
                 }
-                Ok(job::Message::Done(p)) => {
-                    self.after_signing();
-                    self.phase = Phase::Done(p);
+                Ok(job::Message::Done { path, holder }) => {
+                    self.learn(holder);
+                    self.phase = Phase::Done(path);
                     self.job = None;
                     return;
                 }
@@ -485,19 +485,43 @@ impl State {
     }
 
     /// A signature just succeeded, so the certificate has been read: this is
-    /// the one moment the holder's name is available to cache.
-    fn after_signing(&mut self) {
-        let (Some(id), Some(stored)) = (&self.card.id, &mut self.card.stored) else {
+    /// the one moment the holder's name can be learnt.
+    ///
+    /// Only worth writing when the keyring already holds this card — there is
+    /// no PIN to file it under otherwise, and a name on its own would be
+    /// personal data stored for nothing.
+    fn learn(&mut self, holder: Option<cie_lib::DatiTitolare>) {
+        let (Some(holder), Some(id), Some(stored)) =
+            (holder, self.card.id.clone(), self.card.stored.clone())
+        else {
             return;
         };
-        if stored.name.is_some() {
+
+        let learnt = CardSecret {
+            pin: stored.pin.clone(),
+            name: holder.nome,
+            surname: holder.cognome,
+            tax_code: holder.codice_fiscale,
+        };
+        if learnt == stored {
             return;
         }
-        // ponytail: the job thread drops the signer before we get here, so the
-        // certificate is gone with it. Wiring the holder's details back through
-        // `job::Message::Done` is the fix when the greeting matters; until the
-        // reader watcher lands there is nothing on screen that would show it.
-        let _ = (id, stored);
+        if keyring::store(&id, &learnt).is_ok() {
+            self.card.stored = Some(learnt);
+        }
+    }
+
+    /// What the stamp should say, as far as anything knows before the PIN.
+    ///
+    /// `None` means nobody knows yet and the preview draws placeholders.
+    pub fn known_holder(&self) -> Option<cie_lib::DatiTitolare> {
+        let stored = self.card.stored.as_ref()?;
+        (stored.name.is_some() || stored.surname.is_some()).then(|| cie_lib::DatiTitolare {
+            nome: stored.name.clone(),
+            cognome: stored.surname.clone(),
+            codice_fiscale: stored.tax_code.clone(),
+            ..Default::default()
+        })
     }
 }
 

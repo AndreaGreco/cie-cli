@@ -41,24 +41,34 @@ impl Default for PadesOptions {
     }
 }
 
+/// The holder as one line, for the stamp.
+///
+/// Given name plus surname first, and the common name only as a fallback. On a
+/// CIE the CN is not a name: it carries the tax code, sometimes with the card
+/// number attached. Preferring it puts `RSSMRA80A01H501U` where the reader
+/// expects to see who signed.
+fn holder_name(holder: &DatiTitolare) -> Option<String> {
+    match (&holder.nome, &holder.cognome) {
+        (Some(n), Some(c)) => Some(format!("{n} {c}")),
+        (Some(one), None) | (None, Some(one)) => Some(one.clone()),
+        (None, None) => holder.nome_completo.clone(),
+    }
+}
+
 /// The lines of the visible stamp.
 ///
-/// `certificate` is `None` before the card has been opened — the preview needs
-/// to draw the stamp while the holder's details are still unknown. In that case
-/// the card-derived lines carry placeholders of realistic width, so what the
-/// user sees on screen has the shape and size of what will end up in the PDF.
-pub fn stamp_lines(certificate: Option<&[u8]>, reason: Option<&str>, when: &str) -> Vec<TextLine> {
-    let holder = certificate
-        .and_then(DatiTitolare::from_certificate_der)
-        .unwrap_or_default();
-
+/// `holder` is `None` while nobody knows whose card this is — the preview has
+/// to draw the stamp before the certificate has been read. In that case the
+/// card-derived lines carry placeholders of realistic width, so what is on
+/// screen has the shape and size of what will end up in the PDF.
+pub fn stamp_lines(
+    holder: Option<&DatiTitolare>,
+    reason: Option<&str>,
+    when: &str,
+) -> Vec<TextLine> {
     let name = holder
-        .nome_completo
-        .or_else(|| match (holder.nome, holder.cognome) {
-            (Some(n), Some(c)) => Some(format!("{} {}", n, c)),
-            _ => None,
-        })
-        .unwrap_or_else(|| match certificate {
+        .and_then(holder_name)
+        .unwrap_or_else(|| match holder {
             Some(_) => "titolare non identificato".to_string(),
             None => "NOME DEL TITOLARE".to_string(),
         });
@@ -67,24 +77,30 @@ pub fn stamp_lines(certificate: Option<&[u8]>, reason: Option<&str>, when: &str)
         TextLine::new("Firmato digitalmente da").size(7.0),
         TextLine::new(name).bold().size(9.0),
     ];
-    match (holder.codice_fiscale, certificate) {
-        (Some(cf), _) => lines.push(TextLine::new(format!("C.F. {}", cf)).size(7.0)),
-        // No certificate yet: keep the line, it takes up room in the box.
-        (None, None) => lines.push(TextLine::new("C.F. XXXXXXXXXXXXXXXX").size(7.0)),
-        (None, Some(_)) => {}
+    match holder.and_then(|h| h.codice_fiscale.clone()) {
+        Some(cf) => lines.push(TextLine::new(format!("C.F. {cf}")).size(7.0)),
+        // Nobody known yet: keep the line, it takes up room in the box.
+        None if holder.is_none() => {
+            lines.push(TextLine::new("C.F. XXXXXXXXXXXXXXXX").size(7.0))
+        }
+        None => {}
     }
-    lines.push(TextLine::new(format!("Data: {}", when)).size(7.0));
+    lines.push(TextLine::new(format!("Data: {when}")).size(7.0));
     if let Some(r) = reason {
-        lines.push(TextLine::new(format!("Motivo: {}", r)).size(7.0));
+        lines.push(TextLine::new(format!("Motivo: {r}")).size(7.0));
     }
     lines
 }
 
 /// The stamp as it will look, for drawing on a preview before the card is
-/// opened. Same lines the signature will carry, with today's date.
-pub fn preview_stamp_lines(reason: Option<&str>) -> Vec<TextLine> {
+/// opened.
+///
+/// Same lines the signature will carry, with today's date. Pass the holder when
+/// something already knows it — a card the keyring has seen before — and the
+/// preview stops being a mock-up and becomes the thing itself.
+pub fn preview_stamp_lines(holder: Option<&DatiTitolare>, reason: Option<&str>) -> Vec<TextLine> {
     let when = chrono::Local::now().format("%d/%m/%Y %H:%M:%S").to_string();
-    stamp_lines(None, reason, &when)
+    stamp_lines(holder, reason, &when)
 }
 
 /// Signs a PDF at PAdES B-B and returns the signed PDF.
@@ -97,7 +113,10 @@ pub fn sign_pdf(pdf: &[u8], signer: &dyn CryptoSigner, options: &PadesOptions) -
 
     let text = TextConfig {
         lines: stamp_lines(
-            Some(signer.certificate_der()),
+            // An unparseable certificate still has a holder — we just cannot
+            // read it — so this stays `Some` and the stamp says as much rather
+            // than falling back to the preview's placeholders.
+            Some(&DatiTitolare::from_certificate_der(signer.certificate_der()).unwrap_or_default()),
             options.reason.as_deref(),
             &when,
         ),
@@ -199,15 +218,47 @@ mod tests {
     #[test]
     fn the_stamp_carries_the_certificate_holder() {
         let signer = fake_signer();
-        let lines = stamp_lines(
-            Some(signer.certificate_der()),
-            Some("test"),
-            "01/01/2026 10:00:00",
-        );
+        let holder = DatiTitolare::from_certificate_der(signer.certificate_der()).unwrap();
+        let lines = stamp_lines(Some(&holder), Some("test"), "01/01/2026 10:00:00");
         let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
 
         assert!(text.iter().any(|l| l.contains("MARIO ROSSI")), "{:?}", text);
         assert!(text.iter().any(|l| l.contains("Motivo: test")), "{:?}", text);
+    }
+
+    /// A CIE certificate subject, in the shape a real one has:
+    ///
+    /// ```text
+    /// CN=<codice fiscale>/<numero carta>, serialNumber=IDCIT-<...>,
+    /// GN=<nome>, SN=<cognome>, C=IT
+    /// ```
+    ///
+    /// The CN is the tax code with the card number attached, which is why it
+    /// must never be used as a name: doing so printed the tax code twice, once
+    /// where the holder's name belongs and once on the `C.F.` line, and the
+    /// name nowhere at all.
+    #[test]
+    fn a_cie_subject_puts_the_name_where_the_name_goes() {
+        let holder = DatiTitolare {
+            nome: Some("MARIO".to_string()),
+            cognome: Some("ROSSI".to_string()),
+            nome_completo: Some("RSSMRA80A01H501U/100000000001".to_string()),
+            codice_fiscale: Some("RSSMRA80A01H501U".to_string()),
+            ..Default::default()
+        };
+
+        let lines = stamp_lines(Some(&holder), None, "01/01/2026 10:00:00");
+        let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+
+        assert_eq!(text[1], "MARIO ROSSI", "{text:?}");
+        assert!(
+            text.iter().filter(|l| l.contains("RSSMRA80A01H501U")).count() == 1,
+            "the tax code is in the stamp more than once: {text:?}"
+        );
+        assert!(
+            !text.iter().any(|l| l.contains("100000000001")),
+            "the card number has no business in the stamp: {text:?}"
+        );
     }
 
     /// The preview draws the same lines as the real stamp, so what the user
@@ -216,8 +267,9 @@ mod tests {
     #[test]
     fn the_preview_has_the_same_shape_as_the_real_stamp() {
         let signer = fake_signer();
-        let real = stamp_lines(Some(signer.certificate_der()), Some("x"), "01/01/2026 10:00:00");
-        let preview = preview_stamp_lines(Some("x"));
+        let holder = DatiTitolare::from_certificate_der(signer.certificate_der()).unwrap();
+        let real = stamp_lines(Some(&holder), Some("x"), "01/01/2026 10:00:00");
+        let preview = preview_stamp_lines(None, Some("x"));
 
         // The tax code line is compared apart: the test certificate carries no
         // codice fiscale, a real CIE always does, so only the preview has one

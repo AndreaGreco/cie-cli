@@ -8,6 +8,8 @@ use iced::mouse;
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
 use iced::{Color, Element, Fill, Pixels, Point, Rectangle, Renderer, Size, Theme};
 
+use cie_lib::DatiTitolare;
+
 use crate::preview::{Document, Grab, move_stamp, resize_stamp};
 use crate::state::Message;
 use crate::theme;
@@ -24,12 +26,14 @@ pub fn canvas(
     page: usize,
     stamp: [f32; 4],
     reason: &str,
+    holder: Option<DatiTitolare>,
 ) -> Element<'static, Message> {
     canvas::Canvas::new(Stamp {
         ratio: document.aspect_ratio(page),
         page_width_pt: document.display_size(page).0,
         stamp,
         reason: reason.trim().to_string(),
+        holder,
     })
     .width(Fill)
     .height(Fill)
@@ -41,6 +45,9 @@ struct Stamp {
     page_width_pt: f32,
     stamp: [f32; 4],
     reason: String,
+    /// Who the keyring says this card belongs to. With it the mock-up stops
+    /// being a mock-up: what is drawn is what will be stamped.
+    holder: Option<DatiTitolare>,
 }
 
 /// What the pointer is holding, and where it was last seen.
@@ -222,6 +229,7 @@ impl Stamp {
         let px_per_pt = page.width / self.page_width_pt.max(1.0);
 
         let lines = cie_firma::preview_stamp_lines(
+            self.holder.as_ref(),
             (!self.reason.is_empty()).then_some(self.reason.as_str()),
         );
 

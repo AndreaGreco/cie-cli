@@ -109,6 +109,7 @@ fn page(state: &State) -> Element<'_, Message> {
     let handle = state.page_image.clone();
     let (ratio, zoom) = (doc.aspect_ratio(state.page), state.zoom);
     let (page, stamp, reason) = (state.page, state.stamp, state.reason.as_str());
+    let holder = state.known_holder();
 
     // `responsive` reports the room actually left, which is what "fits the
     // window" has to mean. It sits outside the scrollable on purpose: inside,
@@ -133,7 +134,7 @@ fn page(state: &State) -> Element<'_, Message> {
             );
         }
         if let Some(d) = state.document.as_ref() {
-            layers = layers.push(stamp::canvas(d, page, stamp, reason));
+            layers = layers.push(stamp::canvas(d, page, stamp, reason, holder.clone()));
         }
 
         scrollable(container(layers.width(w).height(h)).center_x(Fill))
