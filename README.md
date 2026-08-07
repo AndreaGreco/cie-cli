@@ -112,17 +112,30 @@ un toolkit grafico.
 cargo run --release -p cie-gui
 ```
 
-Una schermata sola: i comandi a sinistra, il documento a destra. Il PDF si vede
-pagina per pagina e il riquadro della firma si trascina per spostarlo e si
-prende per gli angoli per ridimensionarlo, al posto della posizione cablata di
-`cie sign-pdf`. Il nome del file firmato è quello proposto dalla CLI, e si può
-cambiare con un salva-con-nome.
+Una schermata sola: il documento al centro, le scelte in colonna a destra, in
+fondo dove finirà il file e il pulsante per firmare. Il riquadro della firma si
+trascina per spostarlo e si prende per gli angoli per ridimensionarlo, al posto
+della posizione cablata di `cie sign-pdf`; dentro il riquadro c'è un facsimile
+di come verrà, alla stessa scala che avrà nel PDF. Il nome del file firmato è
+quello proposto dalla CLI, e si può cambiare con un salva-con-nome.
+
+Comodità:
+
+| | |
+|---|---|
+| frecce, PagSu / PagGiù | cambia pagina |
+| rotella | cambia pagina a 100%, scorre quando sei zoomato |
+| Ctrl `+` `−` `0` | zoom avanti, indietro, torna a 100% |
+| trascinamento di un file | lo apre |
+
+Il tema segue il desktop; l'interruttore in alto a destra forza chiaro o scuro.
+La lingua arriva da `LANG`, con l'italiano come ripiego.
 
 Su un window manager a piastrelle la finestra la piazza il compositore, non il
 programma: l'unica cosa che `cie-gui` può fare è dire chi è. Su Sway:
 
 ```
-for_window [app_id="cie-gui"] floating enable, resize set 1000 740
+for_window [app_id="cie-gui"] floating enable, resize set 1280 880
 ```
 
 Il PIN si legge, si salva e si cancella dal portachiavi direttamente dalla

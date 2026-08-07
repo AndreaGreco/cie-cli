@@ -9,7 +9,7 @@ mod state;
 mod theme;
 mod view;
 
-use iced::{Size, Subscription, Task, event, time, window};
+use iced::{Size, Subscription, Task, event, keyboard, mouse, time, window};
 use std::time::Duration;
 
 use state::{Message, State};
@@ -41,8 +41,8 @@ fn main() -> iced::Result {
         .font(include_bytes!("../fonts/TitilliumWeb-SemiBold.ttf").as_slice())
         .default_font(theme::UI)
         .window(window::Settings {
-            size: Size::new(1100.0, 760.0),
-            min_size: Some(Size::new(900.0, 600.0)),
+            size: Size::new(1280.0, 880.0),
+            min_size: Some(Size::new(1000.0, 680.0)),
             // The compositor places the window; all we can do is say who we are.
             platform_specific: window::settings::PlatformSpecific {
                 application_id: "cie-gui".to_string(),
@@ -95,16 +95,47 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
     Task::none()
 }
 
-fn subscription(state: &State) -> Subscription<Message> {
-    let dropped = event::listen_with(|event, _status, _window| match event {
+/// Turns raw input into intent. Deliberately dumb: whether an intent is
+/// allowed right now is `State::update`'s call, where it can be tested.
+fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
+    use keyboard::key::Named;
+
+    match event {
         iced::Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
+
+        // `Captured` means a widget already dealt with it — a scrollbar, most
+        // often. Only untouched scrolls are ours to interpret.
+        iced::Event::Mouse(mouse::Event::WheelScrolled { delta })
+            if status == event::Status::Ignored =>
+        {
+            let y = match delta {
+                mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => y,
+            };
+            (y != 0.0).then_some(Message::Wheel { up: y > 0.0 })
+        }
+
+        iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => match key {
+            keyboard::Key::Named(Named::ArrowLeft | Named::PageUp) => Some(Message::PageBack),
+            keyboard::Key::Named(Named::ArrowRight | Named::PageDown) => Some(Message::PageForward),
+            keyboard::Key::Character(ref c) if modifiers.command() => match c.as_str() {
+                "+" | "=" => Some(Message::ZoomIn),
+                "-" => Some(Message::ZoomOut),
+                "0" => Some(Message::ZoomReset),
+                _ => None,
+            },
+            _ => None,
+        },
         _ => None,
-    });
+    }
+}
+
+fn subscription(state: &State) -> Subscription<Message> {
+    let input = event::listen_with(input);
 
     // The timer only exists while a thread has something to say.
     if state.busy() {
-        Subscription::batch([dropped, time::every(TICK).map(|_| Message::Tick)])
+        Subscription::batch([input, time::every(TICK).map(|_| Message::Tick)])
     } else {
-        dropped
+        input
     }
 }

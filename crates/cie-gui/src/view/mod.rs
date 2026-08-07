@@ -3,11 +3,12 @@
 
 mod sidebar;
 mod sign;
+mod stamp;
 
 use iced::widget::{
-    button, column, container, image, opaque, row, space, stack, text,
+    button, column, container, image, opaque, responsive, row, scrollable, space, stack, text,
 };
-use iced::{Alignment, Element, Fill, Length};
+use iced::{Alignment, ContentFit, Element, Fill, Length};
 use rust_i18n::t;
 
 use crate::state::{Message, Phase, State};
@@ -105,36 +106,83 @@ fn empty_state<'a>() -> Element<'a, Message> {
 /// the aspect ratio, so nothing here has to do the arithmetic egui needed.
 fn page(state: &State) -> Element<'_, Message> {
     let doc = state.document.as_ref().expect("checked by the caller");
-    let handle = doc.render(state.page, 1400.0);
+    let handle = state.page_image.clone();
+    let (ratio, zoom) = (doc.aspect_ratio(state.page), state.zoom);
+    let (page, stamp, reason) = (state.page, state.stamp, state.reason.as_str());
 
-    let pager = row![
-        button(text("◀"))
-            .style(theme::quiet)
-            .on_press_maybe((state.page > 0).then_some(Message::PageBack)),
+    // `responsive` reports the room actually left, which is what "fits the
+    // window" has to mean. It sits outside the scrollable on purpose: inside,
+    // the available height is whatever the content asked for.
+    let sheet = responsive(move |room| {
+        let (mut w, mut h) = (room.width, room.width / ratio);
+        if h > room.height {
+            h = room.height;
+            w = h * ratio;
+        }
+        let (w, h) = ((w * zoom).max(1.0), (h * zoom).max(1.0));
+
+        // Both layers get exactly this box and fill it, so the draggable
+        // rectangle lands on the page it claims to point at.
+        let mut layers = stack![];
+        if let Some(bitmap) = handle.clone() {
+            layers = layers.push(
+                image(bitmap)
+                    .width(w)
+                    .height(h)
+                    .content_fit(ContentFit::Fill),
+            );
+        }
+        if let Some(d) = state.document.as_ref() {
+            layers = layers.push(stamp::canvas(d, page, stamp, reason));
+        }
+
+        scrollable(container(layers.width(w).height(h)).center_x(Fill))
+            .direction(scrollable::Direction::Both {
+                vertical: scrollable::Scrollbar::default(),
+                horizontal: scrollable::Scrollbar::default(),
+            })
+            .width(Fill)
+            .height(Fill)
+            .into()
+    });
+
+    column![
+        container(sheet).height(Fill).padding(20),
+        container(pager(state)).center_x(Fill),
+    ]
+    .spacing(8)
+    .padding([16, 0])
+    .into()
+}
+
+/// Pages on the left, zoom on the right: the two things you do to a document
+/// you are not editing.
+fn pager(state: &State) -> Element<'_, Message> {
+    let step = |glyph: &'static str, message: Option<Message>| {
+        button(text(glyph)).style(theme::quiet).on_press_maybe(message)
+    };
+
+    row![
+        step("◀", (state.page > 0).then_some(Message::PageBack)),
         text(t!(
             "stamp.page",
             current = state.page + 1,
             total = state.page_count()
         ))
         .size(13),
-        button(text("▶"))
+        step(
+            "▶",
+            (state.page + 1 < state.page_count()).then_some(Message::PageForward)
+        ),
+        space::horizontal().width(24),
+        step("−", (state.zoom > 1.0).then_some(Message::ZoomOut)),
+        button(text(format!("{:.0}%", state.zoom * 100.0)).size(12))
             .style(theme::quiet)
-            .on_press_maybe(
-                (state.page + 1 < state.page_count()).then_some(Message::PageForward)
-            ),
+            .on_press(Message::ZoomReset),
+        step("+", (state.zoom < 8.0).then_some(Message::ZoomIn)),
     ]
-    .spacing(12)
-    .align_y(Alignment::Center);
-
-    column![
-        container(image(handle).width(Fill))
-            .center_x(Fill)
-            .height(Fill)
-            .padding(20),
-        container(pager).center_x(Fill).padding([0, 0]),
-    ]
-    .spacing(8)
-    .padding([16, 0])
+    .spacing(10)
+    .align_y(Alignment::Center)
     .into()
 }
 

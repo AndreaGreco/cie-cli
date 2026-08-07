@@ -15,11 +15,37 @@ use rust_i18n::t;
 
 use crate::job::{self, Kind, Request};
 use crate::preview::{Document, to_pdf_rect};
+use iced::widget::image;
 use crate::theme::Mode;
 
 /// Where the stamp is proposed: bottom right, the same place `cie sign-pdf`
 /// uses from the command line.
 pub const DEFAULT_STAMP: [f32; 4] = [0.56, 0.87, 0.95, 0.96];
+
+/// Zoom stops. `1.0` means the page fits the window; the rest are steps a
+/// button press moves between, so the zoom never lands on an odd number.
+const ZOOM_STOPS: [f32; 8] = [1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0];
+
+/// Width the page is rasterised at when zoom is `1.0`. Comfortably above a
+/// typical window so the page stays sharp without a re-render on every resize.
+const BASE_RENDER_PX: f32 = 1600.0;
+
+/// Ceiling on the bitmap, at roughly 220 dpi for A4.
+///
+/// Past this the page is rasterised once and the GPU scales it, so deep zoom
+/// goes slightly soft instead of freezing the window: hayro is synchronous and
+/// runs in `update`. ponytail: the real fix is rendering only the visible tile,
+/// which is worth it the day somebody zooms to 8x to read a signature.
+const MAX_RENDER_PX: f32 = 2600.0;
+
+fn next_zoom(current: f32, direction: i32) -> f32 {
+    let here = ZOOM_STOPS
+        .iter()
+        .position(|z| (z - current).abs() < 0.01)
+        .unwrap_or(0) as i32;
+    let next = (here + direction).clamp(0, ZOOM_STOPS.len() as i32 - 1);
+    ZOOM_STOPS[next as usize]
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -33,6 +59,14 @@ pub enum Message {
     PageBack,
     PageForward,
     StampReset,
+    /// The box was dragged or resized: fractions of the page, already
+    /// normalised by `preview`.
+    StampChanged([f32; 4]),
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    /// The wheel turned over something that did not want it.
+    Wheel { up: bool },
     ReasonChanged(String),
     CertifyToggled(bool),
     CertifyLevel(u8),
@@ -55,6 +89,24 @@ pub enum Message {
     Tick,
     ForgetCard,
     ThemeChanged(Mode),
+}
+
+impl Message {
+    /// Moving around the document, as opposed to acting on it. These are the
+    /// ones the signing panel swallows.
+    fn is_navigation(&self) -> bool {
+        matches!(
+            self,
+            Message::PageBack
+                | Message::PageForward
+                | Message::Wheel { .. }
+                | Message::ZoomIn
+                | Message::ZoomOut
+                | Message::ZoomReset
+                | Message::StampChanged(_)
+                | Message::StampReset
+        )
+    }
 }
 
 /// How far the signing panel has got.
@@ -93,6 +145,14 @@ pub struct State {
     pub stamp: [f32; 4],
     pub reason: String,
     pub certify: Option<u8>,
+    /// `1.0` fits the page to the window; above that the desk scrolls.
+    pub zoom: f32,
+    /// The current page, already rasterised.
+    ///
+    /// Kept here rather than rebuilt in `view`: hayro takes tens of
+    /// milliseconds on a real page, and `view` runs on every frame. The handle
+    /// itself is cheap to clone — it is reference counted.
+    pub page_image: Option<image::Handle>,
 
     // Destination
     pub output: PathBuf,
@@ -120,6 +180,8 @@ impl Default for State {
             stamp: DEFAULT_STAMP,
             reason: String::new(),
             certify: None,
+            zoom: 1.0,
+            page_image: None,
             output: PathBuf::new(),
             output_chosen: false,
             card: Card::default(),
@@ -160,6 +222,12 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message) {
+        // While the signing panel is up the keyboard belongs to the PIN field
+        // and the document underneath is not going anywhere.
+        if !matches!(self.phase, Phase::Idle) && message.is_navigation() {
+            return;
+        }
+
         match message {
             Message::DocumentChosen(Some(p)) | Message::FileDropped(p) => self.open(p),
             Message::DocumentChosen(None) | Message::ChooseDocument => {}
@@ -169,13 +237,34 @@ impl State {
                 self.output_chosen = false;
                 self.refresh_output();
             }
-            Message::PageBack => self.page = self.page.saturating_sub(1),
+            Message::PageBack => {
+                self.page = self.page.saturating_sub(1);
+                self.rasterise();
+            }
             Message::PageForward => {
                 if self.page + 1 < self.page_count() {
                     self.page += 1;
+                    self.rasterise();
+                }
+            }
+            // At 1:1 the page fits and nothing scrolls, so the wheel is free
+            // to turn pages. Zoomed in it is the scrollbars' to take, and the
+            // ones that reach here are the ones they did not want.
+            Message::Wheel { up } => {
+                if self.zoom <= 1.0 {
+                    self.update(if up { Message::PageBack } else { Message::PageForward });
                 }
             }
             Message::StampReset => self.stamp = DEFAULT_STAMP,
+            Message::StampChanged(stamp) => self.stamp = stamp,
+            Message::ZoomIn | Message::ZoomOut | Message::ZoomReset => {
+                self.zoom = match message {
+                    Message::ZoomIn => next_zoom(self.zoom, 1),
+                    Message::ZoomOut => next_zoom(self.zoom, -1),
+                    _ => 1.0,
+                };
+                self.rasterise();
+            }
             Message::ReasonChanged(r) => self.reason = r,
             Message::CertifyToggled(on) => self.certify = on.then_some(2),
             Message::CertifyLevel(l) => self.certify = Some(l),
@@ -226,6 +315,7 @@ impl State {
         self.document = None;
         self.page = 0;
         self.stamp = DEFAULT_STAMP;
+        self.zoom = 1.0;
         self.output_chosen = false;
         self.phase = Phase::Idle;
 
@@ -253,7 +343,19 @@ impl State {
                 self.open_error = Some(t!("document.read_failed", error = e.to_string()).to_string());
             }
         }
+        self.rasterise();
         self.refresh_output();
+    }
+
+    /// Rasterises the current page at a resolution that suits the zoom.
+    ///
+    /// Above `1.0` the bitmap has to grow too, or zooming in would just
+    /// magnify the same pixels and the whole point would be lost.
+    fn rasterise(&mut self) {
+        self.page_image = self
+            .document
+            .as_ref()
+            .map(|d| d.render(self.page, (BASE_RENDER_PX * self.zoom).min(MAX_RENDER_PX)));
     }
 
     fn refresh_output(&mut self) {
@@ -511,6 +613,71 @@ mod tests {
             "documento.pdf.sig",
             "the suffix has to match the kind that will actually be written"
         );
+    }
+
+    /// At 1:1 the wheel turns pages; zoomed in it belongs to the scrollbars,
+    /// and anything that reaches us is left alone.
+    #[test]
+    fn the_wheel_turns_pages_only_at_one_to_one() {
+        let (mut state, _dir) = with_a_pdf();
+        assert_eq!(state.zoom, 1.0);
+
+        // One page in this fixture, so forward is a no-op; back off page 0 too.
+        state.update(Message::Wheel { up: false });
+        assert_eq!(state.page, 0);
+
+        state.update(Message::ZoomIn);
+        assert!(state.zoom > 1.0);
+        state.update(Message::Wheel { up: false });
+        assert_eq!(state.page, 0, "zoomed in, the wheel must not page");
+    }
+
+    /// Zoom walks its stops and stops at the ends rather than running off.
+    #[test]
+    fn zoom_walks_its_stops() {
+        let (mut state, _dir) = with_a_pdf();
+
+        state.update(Message::ZoomIn);
+        assert_eq!(state.zoom, 1.25);
+        state.update(Message::ZoomIn);
+        assert_eq!(state.zoom, 1.5);
+        state.update(Message::ZoomReset);
+        assert_eq!(state.zoom, 1.0);
+
+        // Below the first stop there is nothing to go to.
+        state.update(Message::ZoomOut);
+        assert_eq!(state.zoom, 1.0);
+
+        for _ in 0..20 {
+            state.update(Message::ZoomIn);
+        }
+        assert_eq!(state.zoom, 8.0, "must stop at the last stop");
+    }
+
+    /// While the panel is up, the document underneath must hold still — a
+    /// stray arrow key must not move the box that is about to be signed.
+    #[test]
+    fn the_panel_swallows_navigation() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::ZoomIn);
+        let zoom = state.zoom;
+
+        state.update(Message::SignPressed);
+        assert!(matches!(state.phase, Phase::Pin { .. }));
+
+        state.update(Message::ZoomIn);
+        state.update(Message::StampReset);
+        state.update(Message::Wheel { up: true });
+
+        assert_eq!(state.zoom, zoom, "zoom moved while signing");
+    }
+
+    /// Opening a document rasterises it: without this the page area is blank
+    /// until something else happens to trigger a redraw.
+    #[test]
+    fn opening_a_document_rasterises_it() {
+        let (state, _dir) = with_a_pdf();
+        assert!(state.page_image.is_some());
     }
 
     /// Paging stops at both ends instead of panicking on the index.
