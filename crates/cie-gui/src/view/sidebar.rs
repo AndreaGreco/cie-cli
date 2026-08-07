@@ -39,7 +39,7 @@ fn section<'a>(
     body: impl Into<Element<'a, Message>>,
 ) -> Element<'a, Message> {
     column![
-        text(title.into_owned()).size(12),
+        text(title.into_owned()).size(12).font(theme::UI_STRONG),
         container(body.into())
             .style(theme::card)
             .padding(12)

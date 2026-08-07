@@ -44,7 +44,7 @@ fn app_bar(state: &State) -> Element<'_, Message> {
 
     container(
         row![
-            text(t!("app.title")).size(17),
+            text(t!("app.title")).size(17).font(theme::UI_STRONG),
             space::horizontal(),
             card.size(13),
             button(text(state.mode.label().into_owned()).size(12))
@@ -87,7 +87,7 @@ fn desk(state: &State) -> Element<'_, Message> {
 fn empty_state<'a>() -> Element<'a, Message> {
     container(
         column![
-            text(t!("document.drop_here")).size(19),
+            text(t!("document.drop_here")).size(19).font(theme::UI_STRONG),
             button(text(t!("document.or_choose")))
                 .style(theme::secondary)
                 .on_press(Message::ChooseDocument),
@@ -159,7 +159,7 @@ fn action_bar(state: &State) -> Element<'_, Message> {
         row![
             destination,
             space::horizontal(),
-            button(text(t!("sign.action")).size(15))
+            button(text(t!("sign.action")).size(15).font(theme::UI_STRONG))
                 .style(theme::primary)
                 .padding([10, 28])
                 .on_press_maybe(state.can_sign().then_some(Message::SignPressed)),

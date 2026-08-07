@@ -37,6 +37,9 @@ fn main() -> iced::Result {
         .title(|_: &State| rust_i18n::t!("app.title").into_owned())
         .theme(|s: &State| s.mode.theme())
         .subscription(subscription)
+        .font(include_bytes!("../fonts/TitilliumWeb-Regular.ttf").as_slice())
+        .font(include_bytes!("../fonts/TitilliumWeb-SemiBold.ttf").as_slice())
+        .default_font(theme::UI)
         .window(window::Settings {
             size: Size::new(1100.0, 760.0),
             min_size: Some(Size::new(900.0, 600.0)),

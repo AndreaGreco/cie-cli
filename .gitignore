@@ -1,1 +1,5 @@
 /target
+
+# Lo scarico grezzo da Google Fonts: nel repo entrano solo i due pesi che
+# spediamo davvero, in crates/cie-gui/fonts/.
+/fonts/

@@ -6,8 +6,24 @@
 //! identity document should look like the paperwork it produces, not like a
 //! debug panel.
 
+use iced::font::Weight;
 use iced::widget::{button, container, text_input};
-use iced::{Background, Border, Color, Theme};
+use iced::{Background, Border, Color, Font, Theme};
+
+/// Titillium Web, the face of the Italian public administration design system.
+///
+/// Shipped inside the binary rather than looked up on the system: it is not
+/// installed by default anywhere, and a tool that silently falls back to
+/// whatever the desktop has is a tool that looks different on every machine.
+/// SIL Open Font License 1.1 — `fonts/OFL.txt` travels with it.
+pub const UI: Font = Font::with_name("Titillium Web");
+
+/// The same face with weight, for titles. egui had no bold at all, which is
+/// why the old stamp mock-up faked it by darkening the grey.
+pub const UI_STRONG: Font = Font {
+    weight: Weight::Semibold,
+    ..Font::with_name("Titillium Web")
+};
 
 /// Which look the window wears.
 ///

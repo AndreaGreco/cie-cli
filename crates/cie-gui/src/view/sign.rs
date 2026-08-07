@@ -37,7 +37,7 @@ fn ask_for_pin<'a>(pin: &str, remember: bool, state: &'a State) -> Element<'a, M
     let complete = pin.len() == 8;
 
     let mut body = column![
-        text(t!("sign.pin_title")).size(17),
+        text(t!("sign.pin_title")).size(17).font(theme::UI_STRONG),
         row![
             text_input("", pin)
                 .secure(true)
@@ -105,7 +105,7 @@ fn running<'a>(step: usize, label: &str) -> Element<'a, Message> {
         t!("sign.step_signing"),
     ];
 
-    let mut body = column![text(t!("sign.in_progress")).size(17)].spacing(14);
+    let mut body = column![text(t!("sign.in_progress")).size(17).font(theme::UI_STRONG)].spacing(14);
 
     let mut list = column![].spacing(8);
     for (i, name) in steps.iter().enumerate() {
@@ -144,7 +144,7 @@ fn running<'a>(step: usize, label: &str) -> Element<'a, Message> {
 
 fn done(path: &std::path::Path) -> Element<'_, Message> {
     column![
-        text(t!("sign.done")).size(17).style(iced::widget::text::success),
+        text(t!("sign.done")).size(17).font(theme::UI_STRONG).style(iced::widget::text::success),
         text(path.display().to_string()).size(13),
         text(t!("sign.eku_warning"))
             .size(11)
@@ -176,7 +176,7 @@ fn done(path: &std::path::Path) -> Element<'_, Message> {
 /// tries for nothing.
 fn failed(error: &str) -> Element<'_, Message> {
     column![
-        text(t!("sign.failed")).size(17).style(iced::widget::text::danger),
+        text(t!("sign.failed")).size(17).font(theme::UI_STRONG).style(iced::widget::text::danger),
         text(error).size(13),
         row![
             iced::widget::space::horizontal(),
