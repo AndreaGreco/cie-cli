@@ -104,6 +104,40 @@ pub fn open_and_authenticate(
     })
 }
 
+/// Which card is on the reader, without asking for anything.
+///
+/// File `0x1001` (ID_Servizi) is public: no PIN, no secure channel, just select
+/// the applet and read. Twelve ASCII digits, and the same number printed on the
+/// card — so it serves both as the keyring key and as the label to show.
+///
+/// Must not be called while a signature is in flight: that thread holds the
+/// card, and connecting alongside it would make one of the two fail.
+pub fn identify(ctx: &PcscContext) -> Result<String> {
+    let card = ctx.connect_to_cie()?;
+    let cie = CieCard::new(&card)?;
+    card_id(&cie)
+}
+
+/// Same, on a card someone else has already opened.
+///
+/// Worth the second entry point: opening a second connection to read this while
+/// a secure channel is live on the first would select the applet underneath it,
+/// and applet selection is card state, not connection state.
+pub fn card_id(cie: &CieCard) -> Result<String> {
+    let raw = cie.read_id_servizi()?;
+
+    let id: String = raw
+        .iter()
+        .map(|&b| b as char)
+        .filter(|c| c.is_ascii_digit())
+        .collect();
+
+    if id.is_empty() {
+        anyhow::bail!("la carta non ha restituito un identificativo leggibile");
+    }
+    Ok(id)
+}
+
 /// Stands in for the card: takes a hash, builds the DigestInfo, applies PKCS#1
 /// v1.5 padding and RSA. Exactly what `sign_sha256` does, so the signing path
 /// the tests exercise is the real one.

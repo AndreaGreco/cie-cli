@@ -99,7 +99,7 @@ Design system della PA italiana (Designers Italia / Bootstrap Italia).
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ ▌Firma con CIE                 ● Mario Rossi · 1A2B…   ⚙  ─□×│
+│ ▌Firma con CIE                 ● Mario Rossi · 1000…   ⚙  ─□×│
 ├───────────────────────────────────┬──────────────────────────┤
 │                                   │  DOCUMENTO               │
 │     ┌───────────────────────┐     │ ┌──────────────────────┐ │
@@ -161,10 +161,14 @@ A fine corsa lo stesso pannello diventa l'esito: verde con **Apri il PDF** /
 **Apri cartella** / **Chiudi**, oppure rosso col testo dell'errore e **Riprova**,
 che torna al PIN senza rifare tutto.
 
-Sugli errori di PIN il pannello dice **quanti tentativi restano**, letti con
-`SecureMessaging::pin_retries_left()` — VERIFY con campo dati vuoto, la carta
-risponde `63Cx` senza consumare un tentativo. Esiste già in
-`cie-lib/src/secure_messaging.rs:836`.
+Sugli errori di PIN il pannello dice **quanti tentativi restano**, presi
+dall'errore: `CieError::PinIncorrect(n)` porta già il numero, estratto dal
+`63Cx` della VERIFY fallita.
+
+Non si usa `SecureMessaging::pin_retries_left()`, che pure esiste: su questa
+carta la VERIFY con campo dati vuoto risponde `6988` invece di `63Cx`, e
+farebbe avanzare l'SSC del comando immediatamente precedente alla verifica
+vera. È già annotato in `cie-cli/src/commands/auth.rs`.
 
 ## La sonda del lettore
 
@@ -173,26 +177,31 @@ nessun polling. Il lettore fittizio `\\?PnP?\Notification` avvisa anche quando
 il lettore stesso viene collegato o staccato, e vale sia su pcsclite sia su
 Windows.
 
-Quando compare una carta il thread legge i due file **pubblici**, senza PIN e
-senza canale sicuro:
+Quando compare una carta il thread legge **un solo file pubblico**, senza PIN e
+senza canale sicuro: `0x1001` (ID_Servizi), dodici cifre ASCII.
 
-| valore | file | funzione | uso |
-|---|---|---|---|
-| ID_Servizi | `0x1001` | `read_id_servizi()` | chiave nel portachiavi |
-| seriale | `0xD003` (PAN) | `get_serial_from_pan()` | etichetta leggibile, è il numero stampato sulla carta |
+Verificato con la carta alla mano il 2026-08-08: `IdServizi` e il seriale
+estratto dal PAN (`0xD003`, byte 5..11) sono **lo stesso numero**.
 
-Da verificare con la carta alla mano prima di implementare: `cie info` deve
-mostrare `IdServizi` e `PAN` valorizzati **senza** chiedere il PIN. Se uno dei
-due risponde "(richiede PIN)", la chiave cambia e il resto del disegno regge
-lo stesso.
+```
+IdServizi (0x1001): 12 bytes → "100000000001"
+PAN (0xD003):  5a0a9380001000000000016f → 100000000001
+```
+
+Quindi il PAN non serve: `0x1001` è già ASCII, non richiede estrazione, ed è il
+numero stampato sulla carta. Chiave del portachiavi ed etichetta coincidono.
+Sta in `cie_firma::identify()` (che si collega) e `cie_firma::card_id()` (su una
+carta già aperta — serve perché aprire una seconda connessione mentre un canale
+sicuro è vivo selezionerebbe l'applet sotto di lui, e la selezione è stato della
+carta, non della connessione).
 
 Stati del chip nella barra:
 
 ```
 ○  Nessun lettore
 ○  Appoggia la carta
-●  Mario Rossi · 1A2B3C4D5E6F      carta conosciuta
-●  Carta nuova · 1A2B3C4D5E6F      mai vista prima
+●  Mario Rossi · 100000000001      carta conosciuta
+●  Carta nuova · 100000000001      mai vista prima
 ```
 
 **L'identificazione si sospende mentre una firma è in corso.** Il thread della
@@ -216,7 +225,7 @@ Una voce per carta:
 service:  "cie"
 user:     <ID_Servizi>
 segreto:  {"pin":"12345678","nome":"MARIO","cognome":"ROSSI",
-           "cf":"RSSMRA…","seriale":"1A2B3C4D5E6F"}
+           "cf":"RSSMRA…","seriale":"100000000001"}
 ```
 
 **Vincolo: nell'indice va solo l'ID_Servizi, mai nome o codice fiscale.** In

@@ -19,7 +19,7 @@ pub fn execute(percorso: String, pin: Option<String>, uscita: Option<String>) ->
     println!("SHA256: {}", hex::encode(cie_lib::crypto::sha256(&contenuto)));
 
     let ctx = PcscContext::new()?;
-    let firmatario = super::apri_carta(&ctx, pin)?;
+    let firmatario = super::open_card(&ctx, pin)?;
 
     println!("\n═══ Firma ═══");
     // `sign_detached` ricontrolla il risultato con la pubblica del

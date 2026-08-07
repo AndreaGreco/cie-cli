@@ -14,13 +14,14 @@
 
 mod cades;
 mod detached;
+pub mod keyring;
 mod pades;
 mod signer;
 
 pub use cades::sign_p7m;
 pub use detached::sign_detached;
 pub use pades::{preview_stamp_lines, sign_pdf, stamp_lines, PadesOptions};
-pub use signer::{open_and_authenticate, CieSigner, Step};
+pub use signer::{card_id, identify, open_and_authenticate, CieSigner, Step};
 
 // Callers need the trait in scope to hand out a `&dyn CryptoSigner`.
 pub use underskrift::CryptoSigner;

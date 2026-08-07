@@ -68,6 +68,8 @@ cie sign <file>       # firma detached: <file>.sig + <file>.cer
 cie sign-p7m <file>   # CAdES: contenuto e firma insieme in <file>.p7m
 cie sign-pdf <f.pdf>  # PAdES: la firma finisce dentro il PDF
 
+cie completions --install  # completamento per bash, zsh o fish
+
 cie -vv auth      # con ogni APDU in TX/RX
 
 cie-gui           # le stesse firme, con il documento davanti
@@ -88,6 +90,19 @@ compilare i moduli e firmare — il default, quindi altri possono controfirmare 
 e `3` permette anche le annotazioni. Ammessa solo sulla prima firma di un
 documento.
 
+### Completamento automatico
+
+```bash
+cie completions --install     # indovina la shell da $SHELL
+cie completions zsh --install # oppure la scegli tu
+cie completions fish          # solo stampa, se preferisci piazzarlo a mano
+```
+
+Lo script finisce dove bash e fish lo trovano da soli
+(`~/.local/share/bash-completion/completions/`, `~/.config/fish/completions/`);
+per zsh il comando stampa la riga di `fpath` da aggiungere a `~/.zshrc`. Vale
+la pena rilanciarlo dopo un aggiornamento: le opzioni nuove arrivano da lì.
+
 ### L'interfaccia grafica
 
 `cie-gui` è un binario separato: chi usa la riga di comando non si porta dietro
@@ -97,29 +112,44 @@ un toolkit grafico.
 cargo run --release -p cie-gui
 ```
 
-Un wizard di cinque passi — quattro se la firma non è PAdES, perché il riquadro
-esiste solo lì. Il PDF si vede a schermo pagina per pagina e il riquadro della
-firma si trascina per spostarlo e si prende per gli angoli per ridimensionarlo,
-al posto della posizione cablata di
+Una schermata sola: i comandi a sinistra, il documento a destra. Il PDF si vede
+pagina per pagina e il riquadro della firma si trascina per spostarlo e si
+prende per gli angoli per ridimensionarlo, al posto della posizione cablata di
 `cie sign-pdf`. Il nome del file firmato è quello proposto dalla CLI, e si può
 cambiare con un salva-con-nome.
 
+Su un window manager a piastrelle la finestra la piazza il compositore, non il
+programma: l'unica cosa che `cie-gui` può fare è dire chi è. Su Sway:
+
+```
+for_window [app_id="cie-gui"] floating enable, resize set 1000 740
+```
+
 Il PIN si legge, si salva e si cancella dal portachiavi direttamente dalla
-finestra (D-Bus, senza passare per il binario `secret-tool`). La voce è la
-stessa che usa `cie`, quindi i due strumenti si trovano.
+finestra. La voce è la stessa che usa `cie`, perché i due strumenti condividono
+il codice invece di accordarsi su una convenzione.
 
 ### Il PIN
 
 In ordine di precedenza: argomento `--pin`, portachiavi di sistema, prompt a
 video. Il modo consigliato è il portachiavi, così il PIN non finisce né nella
-history della shell né in `ps`:
+history della shell né in `ps`.
 
-```bash
-secret-tool store --label='CIE PIN' service cie
-```
+Il portachiavi tiene **una voce per carta**, così più di una CIE può convivere
+nello stesso profilo. La chiave è l'identificativo del chip (file `0x1001`,
+dodici cifre — lo stesso numero stampato sulla carta), che si legge senza PIN:
+basta appoggiare la tessera perché lo strumento sappia di quale PIN ha bisogno.
 
-Servono tutte e 8 le cifre. `cie-gui` scrive e cancella la stessa voce dalla
-sua schermata del PIN.
+Per popolarlo basta firmare o autenticarsi una volta digitando il PIN: a
+verifica riuscita `cie` chiede se ricordarlo. Insieme al PIN salva nome,
+cognome e codice fiscale letti dal certificato — è cache, serve a riconoscere
+la carta appena appoggiata, quando il certificato è ancora chiuso dietro il PIN.
+
+Nome e codice fiscale stanno **dentro** il segreto cifrato, mai nell'indice: su
+secret-service gli attributi di ricerca sono metadati in chiaro, leggibili da
+chiunque stia sul bus di sessione.
+
+Servono tutte e 8 le cifre.
 
 ## Architettura
 
@@ -143,7 +173,7 @@ crates/
 ├── cie-cli/                     binario `cie`
 └── cie-gui/                     binario `cie-gui`
     └── src/
-        ├── wizard.rs            i cinque passi
+        ├── app.rs               la schermata unica
         ├── preview.rs           hayro + riquadro → punti PDF
         ├── job.rs               la carta su un thread suo
         └── keyring.rs           il PIN via D-Bus

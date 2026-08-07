@@ -3,7 +3,7 @@
 mod commands;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueHint};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
@@ -11,7 +11,7 @@ use tracing_subscriber::FmtSubscriber;
 #[command(name = "cie")]
 #[command(author, version, about = "CLI per la Carta d'Identità Elettronica italiana (PC/SC diretto)")]
 #[command(propagate_version = true)]
-struct Cli {
+pub struct Cli {
     /// Livello di verbosità (-v, -vv, -vvv)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -37,13 +37,14 @@ enum Commands {
         pin: Option<String>,
 
         /// Salva su file il certificato letto dalla carta (DER).
-        #[arg(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         dump_cert: Option<String>,
     },
 
     /// Firma il digest SHA-256 di un file con la chiave della carta
     Sign {
         /// File da firmare
+        #[arg(value_hint = ValueHint::FilePath)]
         file: String,
 
         /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
@@ -51,13 +52,14 @@ enum Commands {
         pin: Option<String>,
 
         /// Dove scrivere la firma (default: <file>.sig)
-        #[arg(short, long, value_name = "FILE")]
+        #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
     },
 
     /// Firma un file qualsiasi in CAdES: contenuto e firma in un unico .p7m
     SignP7m {
         /// File da firmare
+        #[arg(value_hint = ValueHint::FilePath)]
         file: String,
 
         /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
@@ -65,13 +67,14 @@ enum Commands {
         pin: Option<String>,
 
         /// Dove scrivere la busta (default: <file>.p7m)
-        #[arg(short, long, value_name = "FILE")]
+        #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
     },
 
     /// Firma un PDF in PAdES: la firma finisce dentro il file, non a fianco
     SignPdf {
         /// PDF da firmare
+        #[arg(value_hint = ValueHint::FilePath)]
         file: String,
 
         /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
@@ -79,7 +82,7 @@ enum Commands {
         pin: Option<String>,
 
         /// Dove scrivere il PDF firmato (default: <file>-firmato.pdf)
-        #[arg(short, long, value_name = "FILE")]
+        #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
 
         /// Pagina su cui disegnare il riquadro (da 1)
@@ -101,6 +104,16 @@ enum Commands {
             value_parser = clap::value_parser!(u8).range(1..=3),
         )]
         certifica: Option<u8>,
+    },
+
+    /// Installa il completamento automatico dei comandi nella tua shell
+    Completions {
+        /// bash, zsh, fish... (default: quella indicata da $SHELL)
+        shell: Option<clap_complete::Shell>,
+
+        /// Scrive lo script dove la shell lo trova da sola, invece di stamparlo
+        #[arg(long)]
+        install: bool,
     },
 }
 
@@ -133,6 +146,9 @@ fn main() -> Result<()> {
             // Le pagine si contano da 1 per chi legge, da 0 per il PDF.
             let indice = pagina.checked_sub(1).context("le pagine si contano da 1")?;
             commands::sign_pdf::execute(file, pin, output, indice, motivo, certifica)
+        }
+        Commands::Completions { shell, install } => {
+            commands::completions::execute(shell, install)
         }
     }
 }

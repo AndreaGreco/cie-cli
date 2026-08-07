@@ -25,8 +25,15 @@ pub fn execute(pin: Option<String>, dump_cert: Option<String>) -> Result<()> {
     println!("Tipo CIE: {:?}", cie_type);
 
     // Seleziona IAS e poi CIE: senza la seconda la VERIFY PIN risponde 6985.
-    CieCard::new(&card)?;
+    let cie = CieCard::new(&card)?;
     println!("✓ Applicazione CIE selezionata\n");
+
+    // L'identificativo si legge adesso, prima del canale sicuro: e' la chiave
+    // del portachiavi, ed e' pubblico.
+    let carta = cie_firma::card_id(&cie).ok();
+    if let Some(id) = &carta {
+        println!("Carta: {id}\n");
+    }
 
     println!("═══ Inizializzazione Secure Messaging ═══");
 
@@ -69,7 +76,7 @@ pub fn execute(pin: Option<String>, dump_cert: Option<String>) -> Result<()> {
     // A differenza del middleware ufficiale qui servono tutte e 8 le cifre: il
     // C++ ne tiene 4 in una cache su disco (IAS::GetFirstPIN) e chiede solo le
     // altre 4, ed e' il motivo per cui pretende l'app Java di registrazione.
-    let pin = super::ottieni_pin(pin)?;
+    let (pin, _) = super::resolve_pin(pin, carta.as_deref())?;
 
     match sm.verify_pin(&card, &pin) {
         Ok(()) => println!("  ✓ PIN corretto, autenticazione riuscita.\n"),

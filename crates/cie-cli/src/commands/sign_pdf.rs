@@ -32,7 +32,7 @@ pub fn execute(
     println!("File: {} ({} byte)", percorso, pdf.len());
 
     let ctx = PcscContext::new()?;
-    let firmatario = super::apri_carta(&ctx, pin)?;
+    let firmatario = super::open_card(&ctx, pin)?;
 
     println!("\n═══ Firma ═══");
     let opzioni = PadesOptions {

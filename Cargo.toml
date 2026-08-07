@@ -24,9 +24,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
 
 # Serialization (dati del titolare)
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Portachiavi di sistema: secret-service su Linux, Credential Manager su
+# Windows, Keychain su macOS, dietro la stessa API.
+keyring = "4"
 
 # Internal crates
 cie-lib = { path = "crates/cie-lib" }

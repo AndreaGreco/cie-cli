@@ -18,7 +18,7 @@ pub fn execute(percorso: String, pin: Option<String>, uscita: Option<String>) ->
     println!("File: {} ({} byte)", percorso, contenuto.len());
 
     let ctx = PcscContext::new()?;
-    let firmatario = super::apri_carta(&ctx, pin)?;
+    let firmatario = super::open_card(&ctx, pin)?;
 
     println!("\n═══ Firma ═══");
     let busta = sign_p7m(&contenuto, &firmatario)?;
