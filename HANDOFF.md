@@ -63,8 +63,13 @@ Tre cambi di sostanza rispetto a prima:
 
 ## `cie-gui`
 
-`eframe` + `rfd` + `hayro`, binario separato. Wizard di cinque passi, quattro
-quando la firma non e' PAdES: il riquadro esiste solo li'.
+`eframe` + `rfd` + `hayro`, binario separato. Schermata unica: pannello dei
+comandi a sinistra (documento, tipo di firma, riquadro, PIN, destinazione,
+bottone Firma), anteprima a destra quando la firma e' PAdES su un PDF leggibile.
+Il wizard a cinque passi non c'e' piu'.
+
+La finestra dichiara `app_id = "cie-gui"`: su un compositore a piastrelle e'
+l'unico appiglio per una regola di floating (vedi README).
 
 Il pezzo che merita attenzione e' `preview.rs`. `SignatureRect::Absolute` di
 underskrift finisce dritto nel `/Rect` dell'annotazione — **user space non

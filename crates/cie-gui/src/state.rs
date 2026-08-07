@@ -1,0 +1,527 @@
+//! The window's state and everything that changes it.
+//!
+//! No widget is built here. That is deliberate: `update` stays a plain function
+//! over plain data, so the behaviour that matters — which signature kind a file
+//! lands on, when signing is allowed, what the panel shows after a failure —
+//! can be tested without opening a window.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, TryRecvError};
+
+use cie_firma::PadesOptions;
+use cie_firma::keyring::{self, CardSecret};
+use rust_i18n::t;
+
+use crate::job::{self, Kind, Request};
+use crate::preview::{Document, to_pdf_rect};
+use crate::theme::Mode;
+
+/// Where the stamp is proposed: bottom right, the same place `cie sign-pdf`
+/// uses from the command line.
+pub const DEFAULT_STAMP: [f32; 4] = [0.56, 0.87, 0.95, 0.96];
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    // Document
+    ChooseDocument,
+    DocumentChosen(Option<PathBuf>),
+    FileDropped(PathBuf),
+
+    // Signature options
+    KindChanged(Kind),
+    PageBack,
+    PageForward,
+    StampReset,
+    ReasonChanged(String),
+    CertifyToggled(bool),
+    CertifyLevel(u8),
+
+    // Destination
+    ChooseOutput,
+    OutputChosen(Option<PathBuf>),
+
+    // Signing
+    SignPressed,
+    PinChanged(String),
+    RememberToggled(bool),
+    PinConfirmed,
+    SignCancelled,
+    OutcomeDismissed,
+    OpenResult,
+    OpenFolder,
+
+    // Background
+    Tick,
+    ForgetCard,
+    ThemeChanged(Mode),
+}
+
+/// How far the signing panel has got.
+#[derive(Debug, Default)]
+pub enum Phase {
+    /// No panel: the window is being filled in.
+    #[default]
+    Idle,
+    /// Asking for the PIN, because the keyring did not have it.
+    Pin { pin: String, remember: bool },
+    /// The card is working. `step` counts the steps already ticked off.
+    Running { step: usize, label: String },
+    Done(PathBuf),
+    Failed(String),
+}
+
+/// The card on the reader, as far as we know.
+#[derive(Debug, Default)]
+pub struct Card {
+    pub id: Option<String>,
+    pub stored: Option<CardSecret>,
+}
+
+pub struct State {
+    // Document
+    pub path: Option<PathBuf>,
+    pub bytes: Option<Arc<Vec<u8>>>,
+    pub document: Option<Document>,
+    pub open_error: Option<String>,
+
+    // Options
+    pub kind: Kind,
+    pub page: usize,
+    /// Fractions of the page image (`0..1`, y downwards). It only becomes a
+    /// `/Rect` at signing time, when the page geometry is known.
+    pub stamp: [f32; 4],
+    pub reason: String,
+    pub certify: Option<u8>,
+
+    // Destination
+    pub output: PathBuf,
+    output_chosen: bool,
+
+    // Card and signing
+    pub card: Card,
+    pub phase: Phase,
+    pub notice: Option<String>,
+    pub mode: Mode,
+
+    identifying: Option<Receiver<Option<String>>>,
+    job: Option<Receiver<job::Message>>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            path: None,
+            bytes: None,
+            document: None,
+            open_error: None,
+            kind: Kind::Pades,
+            page: 0,
+            stamp: DEFAULT_STAMP,
+            reason: String::new(),
+            certify: None,
+            output: PathBuf::new(),
+            output_chosen: false,
+            card: Card::default(),
+            phase: Phase::Idle,
+            notice: None,
+            mode: Mode::default(),
+            identifying: None,
+            job: None,
+        }
+    }
+}
+
+impl State {
+    /// Starts asking the reader who is on it. No PIN involved.
+    pub fn new() -> Self {
+        Self {
+            identifying: Some(job::identify()),
+            ..Self::default()
+        }
+    }
+
+    /// True while something in the background needs draining.
+    pub fn busy(&self) -> bool {
+        self.identifying.is_some() || self.job.is_some()
+    }
+
+    /// A document is enough to press Firma: the PIN is asked afterwards.
+    pub fn can_sign(&self) -> bool {
+        self.bytes.is_some() && self.job.is_none()
+    }
+
+    pub fn shows_preview(&self) -> bool {
+        self.kind == Kind::Pades && self.document.is_some()
+    }
+
+    pub fn page_count(&self) -> usize {
+        self.document.as_ref().map_or(0, Document::page_count)
+    }
+
+    pub fn update(&mut self, message: Message) {
+        match message {
+            Message::DocumentChosen(Some(p)) | Message::FileDropped(p) => self.open(p),
+            Message::DocumentChosen(None) | Message::ChooseDocument => {}
+
+            Message::KindChanged(kind) => {
+                self.kind = kind;
+                self.output_chosen = false;
+                self.refresh_output();
+            }
+            Message::PageBack => self.page = self.page.saturating_sub(1),
+            Message::PageForward => {
+                if self.page + 1 < self.page_count() {
+                    self.page += 1;
+                }
+            }
+            Message::StampReset => self.stamp = DEFAULT_STAMP,
+            Message::ReasonChanged(r) => self.reason = r,
+            Message::CertifyToggled(on) => self.certify = on.then_some(2),
+            Message::CertifyLevel(l) => self.certify = Some(l),
+
+            Message::OutputChosen(Some(p)) => {
+                self.output = p;
+                self.output_chosen = true;
+            }
+            Message::OutputChosen(None) | Message::ChooseOutput => {}
+
+            Message::SignPressed => self.begin(),
+            Message::PinChanged(pin) => {
+                if let Phase::Pin { pin: slot, .. } = &mut self.phase {
+                    // Only digits, never more than eight: the card allows three
+                    // tries and must not burn one on a stray keystroke.
+                    *slot = pin.chars().filter(char::is_ascii_digit).take(8).collect();
+                }
+            }
+            Message::RememberToggled(on) => {
+                if let Phase::Pin { remember, .. } = &mut self.phase {
+                    *remember = on;
+                }
+            }
+            Message::PinConfirmed => {
+                if let Phase::Pin { pin, remember } = &self.phase
+                    && pin.len() == 8
+                {
+                    let (pin, remember) = (pin.clone(), *remember);
+                    self.start_signing(pin, remember);
+                }
+            }
+            Message::SignCancelled | Message::OutcomeDismissed => {
+                self.phase = Phase::Idle;
+            }
+
+            Message::Tick => self.poll(),
+            Message::ForgetCard => self.forget(),
+            Message::ThemeChanged(mode) => self.mode = mode,
+
+            // Side effects with nothing to change: the view turns these into
+            // commands, `update` only has to not choke on them.
+            Message::OpenResult | Message::OpenFolder => {}
+        }
+    }
+
+    fn open(&mut self, path: PathBuf) {
+        self.open_error = None;
+        self.document = None;
+        self.page = 0;
+        self.stamp = DEFAULT_STAMP;
+        self.output_chosen = false;
+        self.phase = Phase::Idle;
+
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let is_pdf = bytes.starts_with(b"%PDF-");
+                self.bytes = Some(Arc::new(bytes));
+
+                if is_pdf {
+                    match Document::open(self.bytes.as_ref().expect("just assigned")) {
+                        Ok(d) => self.document = Some(d),
+                        Err(e) => self.open_error = Some(format!("{e:#}")),
+                    }
+                }
+                // A file that is not a PDF, or a PDF hayro cannot open, is
+                // still signable — just not as PAdES.
+                if self.document.is_none() && self.kind == Kind::Pades {
+                    self.kind = Kind::P7m;
+                }
+                self.path = Some(path);
+            }
+            Err(e) => {
+                self.bytes = None;
+                self.path = None;
+                self.open_error = Some(t!("document.read_failed", error = e.to_string()).to_string());
+            }
+        }
+        self.refresh_output();
+    }
+
+    fn refresh_output(&mut self) {
+        if self.output_chosen {
+            return;
+        }
+        if let Some(p) = &self.path {
+            self.output = job::default_output(p, self.kind);
+        }
+    }
+
+    /// Firma was pressed: skip the PIN panel when the keyring already knows
+    /// this card, otherwise ask.
+    fn begin(&mut self) {
+        self.notice = None;
+        match self.card.stored.as_ref().map(|s| s.pin.clone()) {
+            Some(pin) => self.start_signing(pin, false),
+            None => {
+                self.phase = Phase::Pin {
+                    pin: String::new(),
+                    remember: true,
+                }
+            }
+        }
+    }
+
+    fn start_signing(&mut self, pin: String, remember: bool) {
+        let Some(bytes) = self.bytes.clone() else {
+            self.phase = Phase::Failed(t!("sign.no_document").to_string());
+            return;
+        };
+
+        if remember {
+            self.remember(&pin);
+        }
+
+        let options = match &self.document {
+            Some(doc) if self.kind == Kind::Pades => PadesOptions {
+                page: self.page as u32,
+                rect: to_pdf_rect(self.stamp, &doc.geometry(self.page)),
+                reason: (!self.reason.trim().is_empty()).then(|| self.reason.trim().to_string()),
+                certify: self.certify,
+            },
+            _ => PadesOptions::default(),
+        };
+
+        self.phase = Phase::Running {
+            step: 0,
+            label: t!("sign.step_connecting").to_string(),
+        };
+        self.job = Some(job::spawn(Request {
+            bytes,
+            kind: self.kind,
+            pin,
+            output: self.output.clone(),
+            options,
+        }));
+    }
+
+    /// Writes the PIN under this card's id. Without an id there is nowhere to
+    /// put it, and a keyring that refuses must not stop the signature.
+    fn remember(&mut self, pin: &str) {
+        let Some(id) = self.card.id.clone() else {
+            return;
+        };
+        let entry = CardSecret {
+            pin: pin.to_string(),
+            ..self.card.stored.clone().unwrap_or_default()
+        };
+        match keyring::store(&id, &entry) {
+            Ok(()) => {
+                self.card.stored = Some(entry);
+                self.notice = Some(t!("keyring.saved").to_string());
+            }
+            Err(e) => {
+                self.notice = Some(t!("keyring.not_saved", error = format!("{e:#}")).to_string())
+            }
+        }
+    }
+
+    fn forget(&mut self) {
+        let Some(id) = &self.card.id else { return };
+        if keyring::forget(id).is_ok() {
+            self.card.stored = None;
+            self.notice = Some(t!("keyring.forgotten").to_string());
+        }
+    }
+
+    /// Drains whatever the background threads have to say.
+    fn poll(&mut self) {
+        if let Some(rx) = &self.identifying
+            && let Ok(id) = rx.try_recv()
+        {
+            self.card.stored = id.as_deref().and_then(keyring::read);
+            self.card.id = id;
+            self.identifying = None;
+        }
+
+        let Some(rx) = &self.job else { return };
+        loop {
+            match rx.try_recv() {
+                Ok(job::Message::Progress(label)) => {
+                    let step = match &self.phase {
+                        Phase::Running { step, .. } => step + 1,
+                        _ => 1,
+                    };
+                    self.phase = Phase::Running { step, label };
+                }
+                Ok(job::Message::Done(p)) => {
+                    self.after_signing();
+                    self.phase = Phase::Done(p);
+                    self.job = None;
+                    return;
+                }
+                Ok(job::Message::Failed(e)) => {
+                    self.phase = Phase::Failed(e);
+                    self.job = None;
+                    return;
+                }
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => {
+                    self.job = None;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// A signature just succeeded, so the certificate has been read: this is
+    /// the one moment the holder's name is available to cache.
+    fn after_signing(&mut self) {
+        let (Some(id), Some(stored)) = (&self.card.id, &mut self.card.stored) else {
+            return;
+        };
+        if stored.name.is_some() {
+            return;
+        }
+        // ponytail: the job thread drops the signer before we get here, so the
+        // certificate is gone with it. Wiring the holder's details back through
+        // `job::Message::Done` is the fix when the greeting matters; until the
+        // reader watcher lands there is nothing on screen that would show it.
+        let _ = (id, stored);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINIMAL_PDF: &[u8] = include_bytes!("../../cie-firma/tests/fixtures/minimo.pdf");
+
+    fn with_a_pdf() -> (State, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("documento.pdf");
+        std::fs::write(&path, MINIMAL_PDF).unwrap();
+
+        let mut state = State::default();
+        state.update(Message::DocumentChosen(Some(path)));
+        (state, dir)
+    }
+
+    /// A PDF has to land on PAdES with the preview showing: no preview and
+    /// nowhere to put the rectangle is what looked broken from outside.
+    #[test]
+    fn a_pdf_lands_on_pades() {
+        let (state, _dir) = with_a_pdf();
+
+        assert!(state.document.is_some(), "PDF not opened: {:?}", state.open_error);
+        assert_eq!(state.kind, Kind::Pades);
+        assert!(state.shows_preview());
+    }
+
+    /// Anything that is not a PDF drops PAdES, and the preview with it.
+    #[test]
+    fn a_non_pdf_falls_back_to_p7m() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lettera.txt");
+        std::fs::write(&path, b"non e' un PDF").unwrap();
+
+        let mut state = State::default();
+        state.update(Message::DocumentChosen(Some(path)));
+
+        assert!(state.document.is_none());
+        assert_eq!(state.kind, Kind::P7m);
+        assert!(!state.shows_preview());
+        assert_eq!(state.output.extension().unwrap(), "p7m");
+    }
+
+    /// Firma stays shut until there is something to sign.
+    #[test]
+    fn signing_needs_a_document() {
+        assert!(!State::default().can_sign());
+
+        let (state, _dir) = with_a_pdf();
+        assert!(state.can_sign());
+    }
+
+    /// With no PIN in the keyring, Firma opens the panel rather than going
+    /// straight at the card.
+    #[test]
+    fn firma_asks_for_the_pin_when_the_keyring_is_empty() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::SignPressed);
+
+        assert!(matches!(state.phase, Phase::Pin { .. }));
+    }
+
+    /// The field refuses anything the card would reject, so a typo cannot
+    /// spend one of the three tries.
+    #[test]
+    fn the_pin_field_takes_eight_digits_and_no_more() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::SignPressed);
+
+        state.update(Message::PinChanged("12ab34-56789".to_string()));
+        let Phase::Pin { pin, .. } = &state.phase else {
+            panic!("not asking for a PIN");
+        };
+        assert_eq!(pin, "12345678");
+    }
+
+    /// A short PIN must not start anything.
+    #[test]
+    fn a_short_pin_does_not_start_the_card() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::SignPressed);
+        state.update(Message::PinChanged("1234".to_string()));
+        state.update(Message::PinConfirmed);
+
+        assert!(matches!(state.phase, Phase::Pin { .. }), "should still be asking");
+        assert!(state.job.is_none());
+    }
+
+    /// The destination follows the kind, and keeps following it even after one
+    /// was picked by hand.
+    ///
+    /// The suffix *is* the signature kind, so keeping `altrove.p7m` after a
+    /// switch to detached would write a raw `.sig` into a file whose name
+    /// claims to be an envelope. A lost folder choice is the cheaper mistake.
+    #[test]
+    fn the_destination_follows_the_kind() {
+        let (mut state, dir) = with_a_pdf();
+        assert_eq!(state.output.file_name().unwrap(), "documento-firmato.pdf");
+
+        state.update(Message::KindChanged(Kind::P7m));
+        assert_eq!(state.output.file_name().unwrap(), "documento.pdf.p7m");
+
+        let chosen = dir.path().join("altrove.p7m");
+        state.update(Message::OutputChosen(Some(chosen)));
+        assert_eq!(state.output.file_name().unwrap(), "altrove.p7m");
+
+        state.update(Message::KindChanged(Kind::Detached));
+        assert_eq!(
+            state.output.file_name().unwrap(),
+            "documento.pdf.sig",
+            "the suffix has to match the kind that will actually be written"
+        );
+    }
+
+    /// Paging stops at both ends instead of panicking on the index.
+    #[test]
+    fn paging_stays_on_the_document() {
+        let (mut state, _dir) = with_a_pdf();
+        assert_eq!(state.page_count(), 1);
+
+        state.update(Message::PageForward);
+        assert_eq!(state.page, 0);
+        state.update(Message::PageBack);
+        assert_eq!(state.page, 0);
+    }
+}

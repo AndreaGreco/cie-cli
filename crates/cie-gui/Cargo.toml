@@ -15,14 +15,17 @@ cie-firma.workspace = true
 cie-lib.workspace = true
 anyhow.workspace = true
 
-eframe = "0.35"
+# `tokio` serve solo per `iced::time::every`, che drena il canale della carta.
+iced = { version = "0.14", features = ["canvas", "image", "advanced", "tokio"] }
 rfd = "0.17"
 hayro = "0.7"
 
-# Il portachiavi via D-Bus, senza passare dal binario `secret-tool`.
-# `crypto-rust` evita di legarsi a OpenSSL di sistema.
-secret-service = { version = "5", default-features = false, features = ["rt-tokio-crypto-rust"] }
-tokio = { version = "1", features = ["rt", "net", "time"] }
+# Le stringhe a video stanno in `locales/`, compilate dentro il binario.
+rust-i18n = "4"
+# Il tema segue il desktop; la scelta manuale resta nel menu.
+dark-light = "2"
+# "Apri il PDF" e "Apri cartella" senza cablare xdg-open.
+opener = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

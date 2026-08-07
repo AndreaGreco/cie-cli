@@ -11,7 +11,7 @@
 //! no visible error — and scanned PDFs often carry both.
 
 use anyhow::{anyhow, Result};
-use eframe::egui;
+use iced::widget::image;
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::page::Rotation;
 use hayro::hayro_syntax::Pdf;
@@ -59,18 +59,23 @@ impl Document {
     }
 
     /// Size of the page as displayed, in PDF points, rotation included.
+    ///
+    /// Waiting for the draggable stamp: the mock-up has to be drawn at the same
+    /// scale it will have in the PDF, which is this over the on-screen width.
+    #[expect(dead_code, reason = "used by the stamp canvas, not yet ported")]
     pub fn display_size(&self, page: usize) -> (f32, f32) {
         self.pdf.pages()[page].render_dimensions()
     }
 
     /// Aspect ratio of the page as displayed, rotation included.
+    #[expect(dead_code, reason = "used by the stamp canvas, not yet ported")]
     pub fn aspect_ratio(&self, page: usize) -> f32 {
         let (w, h) = self.display_size(page);
         if h > 0.0 { w / h } else { 1.0 }
     }
 
     /// Rasterizes a page at the given width, in pixels.
-    pub fn render(&self, page: usize, width_px: f32) -> egui::ColorImage {
+    pub fn render(&self, page: usize, width_px: f32) -> image::Handle {
         let p = &self.pdf.pages()[page];
         let (width_pt, _) = p.render_dimensions();
         let scale = (width_px / width_pt.max(1.0)).clamp(0.05, 8.0);
@@ -89,10 +94,20 @@ impl Document {
             },
         );
 
-        egui::ColorImage::from_rgba_premultiplied(
-            [pixmap.width() as usize, pixmap.height() as usize],
-            pixmap.data_as_u8_slice(),
-        )
+        // hayro hands back premultiplied RGBA; iced wants it straight, so the
+        // colour channels get divided back out. Skipping this makes every
+        // anti-aliased edge on the page look sooty.
+        let mut rgba = pixmap.data_as_u8_slice().to_vec();
+        for px in rgba.chunks_exact_mut(4) {
+            let a = px[3];
+            if a != 0 && a != 255 {
+                for c in &mut px[..3] {
+                    *c = ((*c as u16 * 255) / a as u16).min(255) as u8;
+                }
+            }
+        }
+
+        image::Handle::from_rgba(pixmap.width() as u32, pixmap.height() as u32, rgba)
     }
 }
 

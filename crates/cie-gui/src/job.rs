@@ -21,16 +21,6 @@ pub enum Kind {
     Detached,
 }
 
-impl Kind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Kind::Pades => "PAdES — la firma dentro il PDF",
-            Kind::P7m => "CAdES (.p7m) — documento e firma in un unico file",
-            Kind::Detached => "Firma separata (.sig) — più il certificato",
-        }
-    }
-}
-
 /// Everything signing needs, already owned by the thread.
 pub struct Request {
     pub bytes: Arc<Vec<u8>>,
@@ -47,6 +37,21 @@ pub enum Message {
     Done(PathBuf),
     /// The error chain, already formatted.
     Failed(String),
+}
+
+/// Asks the reader which card is on it, off the window thread.
+///
+/// Public files only, so no PIN is involved. It costs about half a second, and
+/// the answer is what tells us whether this card's PIN is already known.
+pub fn identify() -> Receiver<Option<String>> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let id = PcscContext::new()
+            .ok()
+            .and_then(|ctx| cie_firma::identify(&ctx).ok());
+        let _ = tx.send(id);
+    });
+    rx
 }
 
 /// Starts signing on a thread and returns the channel to drain in `update`.
