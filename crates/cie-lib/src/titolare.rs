@@ -33,43 +33,35 @@ impl DatiTitolare {
 
         let mut dati = DatiTitolare::default();
 
-        // Estrai il Subject del certificato
-        let subject = &cert.tbs_certificate.subject;
-
         // Il Subject contiene RDNs (Relative Distinguished Names)
         // Cerchiamo Common Name (CN), Given Name (GN), Surname (SN), Serial Number
-        for rdn in subject.0.iter() {
-            for atv in rdn.0.iter() {
-                let oid = &atv.oid;
-                // Estrai il valore come stringa UTF-8
-                let value = match String::from_utf8(atv.value.value().to_vec()) {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
+        for atv in cert.tbs_certificate().subject().iter() {
+            // Estrai il valore come stringa UTF-8
+            let value = match String::from_utf8(atv.value.value().to_vec()) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
 
-                // OID comuni:
-                // 2.5.4.3 = Common Name (CN)
-                // 2.5.4.4 = Surname (SN)
-                // 2.5.4.5 = Serial Number
-                // 2.5.4.42 = Given Name (GN)
-                // 2.5.4.6 = Country (C)
+            // OID comuni:
+            // 2.5.4.3 = Common Name (CN)
+            // 2.5.4.4 = Surname (SN)
+            // 2.5.4.5 = Serial Number
+            // 2.5.4.42 = Given Name (GN)
+            // 2.5.4.6 = Country (C)
 
-                let oid_str = oid.to_string();
-
-                match oid_str.as_str() {
-                    "2.5.4.3" => dati.nome_completo = Some(value), // CN
-                    "2.5.4.4" => dati.cognome = Some(value),       // Surname
-                    "2.5.4.42" => dati.nome = Some(value),         // Given Name
-                    "2.5.4.5" => {
-                        // Serial Number - potrebbe essere il CF o numero CIE
-                        if value.len() == 16 && value.chars().all(|c| c.is_alphanumeric()) {
-                            dati.codice_fiscale = Some(value);
-                        } else {
-                            dati.numero_cie = Some(value);
-                        }
+            match atv.oid.to_string().as_str() {
+                "2.5.4.3" => dati.nome_completo = Some(value), // CN
+                "2.5.4.4" => dati.cognome = Some(value),       // Surname
+                "2.5.4.42" => dati.nome = Some(value),         // Given Name
+                "2.5.4.5" => {
+                    // Serial Number - potrebbe essere il CF o numero CIE
+                    if value.len() == 16 && value.chars().all(|c| c.is_alphanumeric()) {
+                        dati.codice_fiscale = Some(value);
+                    } else {
+                        dati.numero_cie = Some(value);
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
 
@@ -151,8 +143,8 @@ impl ChiavePubblicaRsa {
             .map_err(|e| CieError::Protocol(format!("certificato non parsabile: {}", e)))?;
 
         let spki = cert
-            .tbs_certificate
-            .subject_public_key_info
+            .tbs_certificate()
+            .subject_public_key_info()
             .subject_public_key
             .as_bytes()
             .ok_or_else(|| CieError::Protocol("SubjectPublicKey non allineata a byte".into()))?;

@@ -295,7 +295,7 @@ impl SecureMessaging {
     /// Esegue lo scambio chiavi DH con la carta
     pub fn dh_key_exchange(&mut self, card: &PcscCard) -> Result<()> {
         use num_bigint::BigUint;
-        use rand::Rng;
+        use rand::RngExt;
 
         info!("Scambio chiavi DH...");
 
@@ -304,7 +304,7 @@ impl SecureMessaging {
         }
 
         // 1. Genera chiave privata DH casuale (stessa lunghezza di p)
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut dh_priv_key = vec![0u8; self.dh_p.len()];
         rng.fill(&mut dh_priv_key[..]);
         // Assicura che sia dispari (come fa il middleware C++)
@@ -500,7 +500,7 @@ impl SecureMessaging {
     ///
     /// Al termine l'SSC riparte da `challenge[4..] || rndIFD[4..]` (IAS.cpp:569).
     pub fn dapp(&mut self, card: &PcscCard) -> Result<()> {
-        use rand::Rng;
+        use rand::RngExt;
 
         info!("DAPP: autenticazione mutua...");
 
@@ -575,7 +575,7 @@ impl SecureMessaging {
         // 5. EXTERNAL AUTHENTICATE: dimostriamo di avere la privata del certificato
         let pad = DEF_MODULE.len() - SHA - 2;
         let mut prnd = vec![0u8; pad];
-        rand::thread_rng().fill(&mut prnd[..]);
+        rand::rng().fill(&mut prnd[..]);
 
         let mut da_hashare = prnd.clone();
         da_hashare.extend_from_slice(&self.dh_pub_key);
@@ -602,7 +602,7 @@ impl SecureMessaging {
 
         // 7. GIVE RANDOM: ora tocca al chip dimostrare chi e'
         let mut rnd_ifd = [0u8; 8];
-        rand::thread_rng().fill(&mut rnd_ifd);
+        rand::rng().fill(&mut rnd_ifd);
         let resp = self.send_sm_ok(card, [0x00, 0x88, 0x00, 0x00], &rnd_ifd, None)?;
 
         if resp.len() <= 8 {

@@ -8,7 +8,7 @@
 //! - RSA per DAPP
 
 use crate::error::{CieError, Result};
-use des::cipher::{BlockEncrypt, BlockDecrypt, KeyInit, generic_array::GenericArray};
+use des::cipher::{BlockCipherEncrypt, BlockCipherDecrypt, KeyInit, array::Array};
 use sha2::{Sha256, Digest};
 
 /// Dimensione blocco DES/3DES
@@ -56,9 +56,9 @@ impl TripleDes {
             return Err(CieError::InvalidInput("Dati non allineati a 8 bytes".into()));
         }
 
-        let k1 = des::Des::new(GenericArray::from_slice(&self.key[0..8]));
-        let k2 = des::Des::new(GenericArray::from_slice(&self.key[8..16]));
-        let k3 = des::Des::new(GenericArray::from_slice(&self.key[16..24]));
+        let k1 = des::Des::new(&self.key[0..8].try_into().expect("chiave DES da 8 byte"));
+        let k2 = des::Des::new(&self.key[8..16].try_into().expect("chiave DES da 8 byte"));
+        let k3 = des::Des::new(&self.key[16..24].try_into().expect("chiave DES da 8 byte"));
 
         let mut result = Vec::with_capacity(data.len());
         let mut prev_block = self.iv;
@@ -71,7 +71,7 @@ impl TripleDes {
             }
 
             // 3DES: E(k1) -> D(k2) -> E(k3)
-            let mut ga = GenericArray::from(block);
+            let mut ga = Array::from(block);
             k1.encrypt_block(&mut ga);
             k2.decrypt_block(&mut ga);
             k3.encrypt_block(&mut ga);
@@ -89,9 +89,9 @@ impl TripleDes {
             return Err(CieError::InvalidInput("Dati cifrati non allineati".into()));
         }
 
-        let k1 = des::Des::new(GenericArray::from_slice(&self.key[0..8]));
-        let k2 = des::Des::new(GenericArray::from_slice(&self.key[8..16]));
-        let k3 = des::Des::new(GenericArray::from_slice(&self.key[16..24]));
+        let k1 = des::Des::new(&self.key[0..8].try_into().expect("chiave DES da 8 byte"));
+        let k2 = des::Des::new(&self.key[8..16].try_into().expect("chiave DES da 8 byte"));
+        let k3 = des::Des::new(&self.key[16..24].try_into().expect("chiave DES da 8 byte"));
 
         let mut result = Vec::with_capacity(data.len());
         let mut prev_block = self.iv;
@@ -101,7 +101,7 @@ impl TripleDes {
             block.copy_from_slice(chunk);
 
             // 3DES decrypt: D(k3) -> E(k2) -> D(k1)
-            let mut ga = GenericArray::from(block);
+            let mut ga = Array::from(block);
             k3.decrypt_block(&mut ga);
             k2.encrypt_block(&mut ga);
             k1.decrypt_block(&mut ga);
@@ -152,8 +152,8 @@ impl RetailMac {
 
     /// Calcola MAC su dati già paddati
     pub fn compute_raw(&self, data: &[u8]) -> Vec<u8> {
-        let k1 = des::Des::new(GenericArray::from_slice(&self.key[0..8]));
-        let k2 = des::Des::new(GenericArray::from_slice(&self.key[8..16]));
+        let k1 = des::Des::new(&self.key[0..8].try_into().expect("chiave DES da 8 byte"));
+        let k2 = des::Des::new(&self.key[8..16].try_into().expect("chiave DES da 8 byte"));
 
         // CBC-MAC con k1
         let mut mac = self.iv;
@@ -168,13 +168,13 @@ impl RetailMac {
             }
 
             // Encrypt con k1
-            let mut ga = GenericArray::from(mac);
+            let mut ga = Array::from(mac);
             k1.encrypt_block(&mut ga);
             mac.copy_from_slice(&ga);
         }
 
         // Retail MAC: decrypt con k2, poi encrypt con k1
-        let mut ga = GenericArray::from(mac);
+        let mut ga = Array::from(mac);
         k2.decrypt_block(&mut ga);
         k1.encrypt_block(&mut ga);
 

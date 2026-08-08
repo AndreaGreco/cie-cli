@@ -11,14 +11,14 @@ thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
 hex = "0.4"
-x509-cert = "0.2"
-der = "0.7"
+x509-cert = "0.3"
+der = "0.8"
 
 # PC/SC per comunicazione diretta con smart card
-pcsc = "2.8"
+pcsc = "2.9"
 
 # Crittografia per Secure Messaging
-des = "0.8"           # 3DES
-sha2 = "0.10"         # SHA-256
-num-bigint = "0.4"    # Big integers per RSA/DH
-rand = "0.8"          # Random number generation
+des = "0.9"           # 3DES
+sha2 = "0.11"         # SHA-256
+num-bigint = "0.5"    # Big integers per RSA/DH
+rand = "0.10"          # Random number generation
