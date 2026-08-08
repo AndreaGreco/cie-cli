@@ -37,6 +37,19 @@ fn main() -> iced::Result {
         rust_i18n::set_locale(&lang);
     }
 
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut window = window::Settings {
+        size: Size::new(1280.0, 880.0),
+        min_size: Some(Size::new(1000.0, 680.0)),
+        ..Default::default()
+    };
+    // The compositor places the window; all we can do is say who we are, and
+    // only X11/Wayland have somewhere to say it.
+    #[cfg(target_os = "linux")]
+    {
+        window.platform_specific.application_id = "cie-gui".to_string();
+    }
+
     iced::application(State::new, update, view::view)
         .title(|_: &State| rust_i18n::t!("app.title").into_owned())
         .theme(|s: &State| s.mode.theme())
@@ -44,16 +57,7 @@ fn main() -> iced::Result {
         .font(include_bytes!("../fonts/TitilliumWeb-Regular.ttf").as_slice())
         .font(include_bytes!("../fonts/TitilliumWeb-SemiBold.ttf").as_slice())
         .default_font(theme::UI)
-        .window(window::Settings {
-            size: Size::new(1280.0, 880.0),
-            min_size: Some(Size::new(1000.0, 680.0)),
-            // The compositor places the window; all we can do is say who we are.
-            platform_specific: window::settings::PlatformSpecific {
-                application_id: "cie-gui".to_string(),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
+        .window(window)
         .run()
 }
 
