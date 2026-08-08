@@ -44,7 +44,7 @@ cie-firma = { path = "crates/cie-firma" }
 # risolvere. Per lavorarci sopra in locale c'e' `.cargo/config.toml` (vedi
 # .cargo/config.toml.example).
 [patch.crates-io]
-underskrift = { git = "https://github.com/AttilioGreco/underskrift", branch = "fix/pades-conformance" }
+underskrift = { git = "https://github.com/AttilioGreco/underskrift", branch = "main" }
 
 # Il profilo con cui 'dist' costruisce i binari di release
 [profile.dist]
