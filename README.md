@@ -4,7 +4,7 @@ CLI e libreria Rust per la **Carta d'Identità Elettronica (CIE)** italiana, che
 parlano alla carta **direttamente in PC/SC**.
 
 Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di
-registrazione, niente dati scritti su disco.
+registrazione, nessun file di cache scritto dallo strumento.
 
 ## Perché
 
@@ -14,8 +14,15 @@ una cache su disco metà del PIN (cifrata con una chiave derivabile da chiunque
 abbia la carta, senza conoscere il PIN). Da lì in poi ti chiede solo le altre 4
 cifre.
 
-Qui il PIN lo si digita per intero, quando serve: la cache non risolveva un
-problema tecnico, e nel farlo dimezzava lo spazio di ricerca di una credenziale.
+Qui il PIN si digita per intero. L'obiezione non è che quella cache stia su
+disco: è che tiene **metà** credenziale sotto una protezione che non protegge, e
+così dimezza lo spazio di ricerca di un PIN che ha un contatore di tentativi.
+
+Se lo vuoi comodo, il PIN va **tutto** nel gestore di password del sistema —
+secret-service, Credential Manager, Keychain — che è il posto costruito apposta
+per custodire un segreto a riposo. `cie` non tiene un formato suo. Ed è
+facoltativo: la domanda ha il no come default, e chi risponde Invio non lascia
+niente sulla macchina.
 
 ## Stato
 

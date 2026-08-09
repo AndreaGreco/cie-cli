@@ -3,7 +3,7 @@ title: CIE-CLI
 description: Parlare alla Carta d'Identita' Elettronica italiana direttamente in PC/SC — firma di documenti e certificazione OpenPGP, senza middleware.
 template: splash
 hero:
-  tagline: La Carta d'Identita' Elettronica in PC/SC diretto. Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di registrazione, niente dati scritti su disco.
+  tagline: La Carta d'Identita' Elettronica in PC/SC diretto. Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di registrazione, nessun file di cache scritto dallo strumento.
   actions:
     - text: Installazione
       link: /cie-cli/guida/installazione/
@@ -31,9 +31,9 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 		[Certificare una chiave →](/cie-cli/guida/openpgp/)
 	</Card>
 	<Card title="Il PIN per intero" icon="seti:lock">
-		Il middleware ufficiale tiene meta' del PIN in una cache su disco, cifrata
-		con una chiave derivabile da chiunque abbia la carta. Qui il PIN si digita
-		tutto, quando serve.
+		Il middleware ufficiale tiene meta' del PIN sotto una protezione che chiunque
+		abbia la carta sa derivare. Qui si digita tutto, e se lo vuoi comodo va tutto
+		nel gestore di password del sistema — o da nessuna parte, se preferisci.
 
 		[Come funziona il PIN →](/cie-cli/guida/pin/)
 	</Card>

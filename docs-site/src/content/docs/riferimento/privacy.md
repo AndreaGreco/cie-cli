@@ -89,7 +89,9 @@ Vedi [Il PIN](/cie-cli/guida/pin/).
 
 ## Cosa `cie-cli` non fa
 
-- Non scrive nessuna cache su disco, e in particolare nessun pezzo di PIN.
+- Non scrive nessun file di cache suo, e in particolare nessun pezzo di PIN. Il
+  solo segreto che puo' essere persistito e' il PIN intero, se scegli di
+  affidarlo al gestore di password del sistema — vedi [Il PIN](/cie-cli/guida/pin/).
 - Non parla con la rete durante la firma: senza la feature di marca temporale nel
   build non c'e' nemmeno un client HTTP.
 - Non manda niente a nessun servizio, di nessun tipo.
