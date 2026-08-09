@@ -35,16 +35,43 @@ ogni aspetto.
 
 ## Il portachiavi di sistema
 
-Dopo una verifica del PIN andata a buon fine, e solo se il PIN e' stato digitato
-a mano, `cie-cli` chiede se ricordarlo:
+Digitare otto cifre a ogni firma e' scomodo, e la scomodita' e' nemica della
+sicurezza tanto quanto una cache fatta male. La via di mezzo e' salvare il PIN
+**per intero** nel gestore di password del sistema operativo.
+
+Dopo una verifica andata a buon fine, e solo se il PIN e' stato digitato a mano,
+`cie-cli` chiede se ricordarlo:
 
 ```
   Ricordare il PIN di questa carta nel portachiavi? [s/N]
 ```
 
 Il portachiavi e' quello del sistema operativo — secret-service su Linux,
-Credential Manager su Windows, Keychain su macOS — dietro la stessa API. Non c'e'
-nessun file di cache scritto da `cie-cli`.
+Credential Manager su Windows, Keychain su macOS — dietro la stessa API.
+`cie-cli` non scrive nessun file di cache proprio: il segreto lo custodisce il
+sistema, cifrato a riposo e sbloccato con le credenziali della sessione.
+
+La differenza con la cache del middleware non e' «su disco» contro «non su
+disco». E' che li' finiscono **quattro cifre**, in un file suo, cifrate con una
+chiave che chiunque abbia la carta puo' derivare senza conoscere il PIN — quindi
+lo spazio di ricerca si dimezza e la protezione non protegge. Qui ci finiscono
+**tutte e otto**, nel deposito segreti del sistema, con la protezione che quel
+deposito offre a tutte le altre password.
+
+### Cosa protegge, e cosa no
+
+| | |
+|---|---|
+| Disco rimosso, immagine, backup | protetto: il segreto e' cifrato a riposo |
+| Un altro utente sulla stessa macchina | protetto |
+| Chi legge `~/.config` o la home | protetto: non c'e' niente da leggere |
+| Un processo che gira **come te**, a sessione sbloccata | **non protetto** |
+
+L'ultima riga e' il modello di secret-service, non una particolarita' di
+`cie-cli`: a portachiavi sbloccato, qualunque processo dell'utente puo'
+chiederne il contenuto. Un portachiavi di sistema non e' una difesa contro
+codice malevolo che gira gia' con i tuoi privilegi — per quello serve che il PIN
+resti nella tua testa.
 
 ### Una chiave per carta
 
@@ -63,6 +90,23 @@ Stanno **dentro** il segreto cifrato, mai negli attributi di ricerca. Su
 secret-service gli attributi sono metadati in chiaro, leggibili da chiunque stia
 sul bus di sessione: metterci un codice fiscale significherebbe pubblicarlo a
 ogni processo dell'utente.
+
+### Non salvarlo mai
+
+Salvare e' facoltativo, e la scelta prudente e' quella di default: la domanda si
+risponde con Invio. Se non rispondi `s`, sul disco non finisce **niente** — ne'
+il PIN ne' i dati del titolare — e il comando prosegue come se non l'avesse mai
+chiesto.
+
+Da li' in poi il PIN si digita ogni volta, che e' esattamente il comportamento
+di chi non vuole nessuna traccia sulla macchina.
+
+:::note[La domanda torna]
+Non esiste un «non chiedermelo piu'»: finche' digiti il PIN a mano, dopo ogni
+verifica riuscita la domanda ricompare. Se ti da' fastidio, aprine una issue —
+un flag per zittirla e' un'aggiunta piccola, ma non l'ho messa senza che
+servisse a qualcuno.
+:::
 
 ### Dimenticare una carta
 

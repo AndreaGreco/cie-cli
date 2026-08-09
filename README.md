@@ -198,6 +198,20 @@ verifica riuscita `cie` chiede se ricordarlo. Insieme al PIN salva nome,
 cognome e codice fiscale letti dal certificato — è cache, serve a riconoscere
 la carta appena appoggiata, quando il certificato è ancora chiuso dietro il PIN.
 
+Nel portachiavi il PIN finisce **per intero**, e a custodirlo è il deposito
+segreti del sistema: cifrato a riposo, sbloccato con le credenziali della
+sessione. `cie` non scrive nessun file di cache suo. È l'opposto della cache del
+middleware, che tiene quattro cifre in un file proprio, cifrate con una chiave
+derivabile da chiunque abbia la carta.
+
+Resta il limite del modello: a portachiavi sbloccato, qualunque processo che
+giri come te può chiederne il contenuto. Un portachiavi di sistema non difende
+da codice che ha già i tuoi privilegi.
+
+Salvare è facoltativo e la domanda ha come default il no: rispondendo Invio non
+finisce niente sul disco, né il PIN né i dati del titolare, e il PIN si digita
+ogni volta.
+
 Nome e codice fiscale stanno **dentro** il segreto cifrato, mai nell'indice: su
 secret-service gli attributi di ricerca sono metadati in chiaro, leggibili da
 chiunque stia sul bus di sessione.
