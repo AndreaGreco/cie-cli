@@ -19,9 +19,43 @@ underskrift = { version = "0.1.4", default-features = false, features = ["visual
 tokio = { version = "1", features = ["rt"] }
 chrono = "0.4"
 
-# Solo per i test: un firmatario software che imita il contratto della carta
-# (riceve un DigestInfo, restituisce PKCS#1 v1.5) cosi' il percorso di firma
-# si puo' esercitare senza CIE.
+# Un firmatario software che imita il contratto della carta (riceve un hash,
+# costruisce il DigestInfo, restituisce PKCS#1 v1.5) cosi' il percorso di firma
+# si puo' esercitare senza CIE. Dietro una feature perche' serve anche a
+# `cie-pgp`, che altrimenti dovrebbe duplicarlo.
+[features]
+test-signer = ["dep:rsa", "dep:sha2", "dep:rand", "dep:x509-cert", "dep:der", "dep:spki", "dep:signature"]
+
+[dependencies.rsa]
+version = "0.9"
+features = ["sha2"]
+optional = true
+
+[dependencies.sha2]
+version = "0.10"
+optional = true
+
+[dependencies.rand]
+version = "0.8"
+optional = true
+
+[dependencies.x509-cert]
+version = "0.2"
+features = ["builder"]
+optional = true
+
+[dependencies.der]
+version = "0.7"
+optional = true
+
+[dependencies.spki]
+version = "0.7"
+optional = true
+
+[dependencies.signature]
+version = "2"
+optional = true
+
 [dev-dependencies]
 rsa = { version = "0.9", features = ["sha2"] }
 sha2 = "0.10"

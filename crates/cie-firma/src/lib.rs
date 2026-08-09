@@ -23,6 +23,9 @@ pub use detached::sign_detached;
 pub use pades::{preview_stamp_lines, sign_pdf, stamp_lines, PadesOptions};
 pub use signer::{card_id, identify, open_and_authenticate, CieSigner, Step};
 
+#[cfg(any(test, feature = "test-signer"))]
+pub use signer::fake;
+
 // Callers need the trait in scope to hand out a `&dyn CryptoSigner`.
 pub use underskrift::CryptoSigner;
 // The preview draws the stamp itself, so it needs the line type.

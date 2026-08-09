@@ -76,9 +76,12 @@ impl sequoia_openpgp::crypto::Signer for CieSequoiaSigner<'_> {
 }
 ```
 
-`acceptable_hashes` che restituisce solo SHA-256 fa sì che sia Sequoia a scegliere
-l'hash giusto quando costruisce la firma, invece che noi a fallire dopo averla
-costruita male.
+**Correzione emersa in implementazione.** `acceptable_hashes` è consultato solo
+dal firmatario di streaming, non da `SignatureBuilder`: lasciato a sé, il builder
+sceglie SHA-512 e la carta rifiuta. Chi costruisce una firma deve quindi imporre
+`set_hash_algo(HashAlgorithm::SHA256)`, e il controllo dentro `sign` è la rete
+che se ne accorgerebbe. Entrambi restano: l'elenco documenta il vincolo, il
+controllo lo fa rispettare.
 
 `key` si costruisce dal SubjectPublicKeyInfo del certificato X.509 con
 `Key4::import_public_rsa(e, n, Some(creation_time))`.
@@ -109,7 +112,13 @@ uid                   ROSSI MARIO (CIE 1234567890)
 - **Creation time**: `notBefore` del certificato X.509, **non** l'ora corrente.
   La fingerprint OpenPGP dipende dal creation time: usare l'ora corrente
   produrrebbe una chiave diversa a ogni esecuzione. Con `notBefore` la
-  fingerprint è deterministica e riproducibile.
+  fingerprint è stabile e riproducibile.
+
+  La stabilità è a livello di fingerprint, non di byte: Sequoia inserisce di
+  proposito un salt casuale in ogni firma v4, per renderla imprevedibile.
+  Rieseguire il comando dà quindi self-signature diverse sulla stessa chiave, e
+  GnuPG le fonde senza rumore. Rimuovere quel salt significherebbe togliere una
+  misura di sicurezza per un requisito che nessuno ha.
 - **User ID**: `<COGNOME> <NOME> (CIE <id_servizi>)`, da `DatiTitolare` e da
   `read_id_servizi`. Nessuna email: la CIE non ne attesta nessuna, e una UID
   senza email non fa asserzioni implicite. Nessun codice fiscale.
@@ -173,7 +182,7 @@ deve essere una scelta deliberata.
 
 ```
 cie gpg certify <chiave.asc> [--uid N] [--pin ...] [-o out.asc] [--yes]
-cie gpg verify  <chiave.asc> [--certifier cie-certifier.asc] [--ca ministero.pem]
+cie gpg verify  <chiave.asc> [--certifier cie-certifier.asc]
 ```
 
 `certify` produce:
@@ -187,10 +196,17 @@ cie gpg verify  <chiave.asc> [--certifier cie-certifier.asc] [--ca ministero.pem
 Più di una User ID e nessun `--uid` → scelta interattiva. Il PIN passa per
 `commands::open_card`, come ogni altro comando.
 
-`verify` valida la certification con Sequoia e, se viene fornita `--ca`, valida
-anche la catena X.509 fino al Ministero. La carta espone solo il proprio leaf —
-le CA non ci sono, vedi `signer.rs:66` — quindi senza `--ca` la catena non è
-verificabile e il comando lo dice esplicitamente invece di tacere.
+`verify` valida la certification con Sequoia e stampa le notation.
+
+La catena X.509 **non** la valida: `--ca` è stato tolto. Farlo bene vuol dire
+date di validità, name chaining, estensioni e revoca — un validatore X.509
+intero — e `openssl verify` esiste già e lo fa meglio. Il comando stampa la
+riga di `openssl` da eseguire, esattamente come `sign.rs` fa oggi per la verifica
+delle firme. Verificare solo la firma della CA e chiamarla «catena validata»
+sarebbe peggio che non farlo.
+
+La carta espone comunque solo il proprio leaf: le CA del Ministero non ci sono
+(vedi `signer.rs:66`), vanno procurate a parte.
 
 ## Privacy: cosa diventa pubblico
 
@@ -219,7 +235,8 @@ Con il mock:
 1. La self-signature del certificatore verifica, e il `Cert` fa round-trip
    attraverso il parser di Sequoia.
 2. La certification verifica con `sig.verify_userid_binding(...)`.
-3. La fingerprint del certificatore è identica su due esecuzioni.
+3. La fingerprint del certificatore è identica su due esecuzioni (i byte no, e
+   il test dice perché).
 4. User ID e subkey originali della chiave certificata restano intatte: i packet
    della chiave in ingresso ricompaiono identici in uscita, con in più la sola
    signature.
@@ -229,8 +246,11 @@ Con il mock:
 Interoperabilità reale, in un test che si salta da solo se `gpg` non è
 installato:
 
-7. `gpg --import` di entrambi i file, poi `gpg --check-sigs` mostra la
-   certification come valida (`sig!`).
+7. Con una chiave generata da GnuPG stesso: `gpg --import` di entrambi i file,
+   `gpg --check-sigs` che mostra `sig:!` (verificata, non solo vista), e la
+   chiave che continua a firmare e a verificare dopo la certificazione — cioè il
+   requisito «i commit Git devono continuare a funzionare», esercitato invece
+   che assunto.
 
 Con la carta vera, `#[ignore]`:
 

@@ -106,6 +106,12 @@ enum Commands {
         certifica: Option<u8>,
     },
 
+    /// Certificazione OpenPGP con la chiave della carta
+    Gpg {
+        #[command(subcommand)]
+        azione: GpgCommands,
+    },
+
     /// Installa il completamento automatico dei comandi nella tua shell
     Completions {
         /// bash, zsh, fish... (default: quella indicata da $SHELL)
@@ -114,6 +120,43 @@ enum Commands {
         /// Scrive lo script dove la shell lo trova da sola, invece di stamparlo
         #[arg(long)]
         install: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GpgCommands {
+    /// Certifica con la CIE una User ID di una chiave OpenPGP
+    Certify {
+        /// Chiave OpenPGP da certificare (armor ASCII o binaria)
+        #[arg(value_hint = ValueHint::FilePath)]
+        chiave: String,
+
+        /// Quale User ID certificare (da 1). Senza, si sceglie a video.
+        #[arg(long, value_name = "N")]
+        uid: Option<usize>,
+
+        /// PIN (8 cifre). Senza questo flag si usa il portachiavi o il prompt.
+        #[arg(short, long)]
+        pin: Option<String>,
+
+        /// Dove scrivere la chiave certificata (default: <chiave>-certificata.asc)
+        #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        output: Option<String>,
+
+        /// Non chiedere conferma se il nome della User ID non corrisponde alla CIE
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// Verifica le certification CIE presenti su una chiave OpenPGP
+    Verify {
+        /// Chiave OpenPGP da esaminare
+        #[arg(value_hint = ValueHint::FilePath)]
+        chiave: String,
+
+        /// Certificatore con cui verificare (cie-certifier.asc)
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
+        certifier: Option<String>,
     },
 }
 
@@ -147,6 +190,14 @@ fn main() -> Result<()> {
             let indice = pagina.checked_sub(1).context("le pagine si contano da 1")?;
             commands::sign_pdf::execute(file, pin, output, indice, motivo, certifica)
         }
+        Commands::Gpg { azione } => match azione {
+            GpgCommands::Certify { chiave, uid, pin, output, yes } => {
+                commands::gpg::certify_key(chiave, uid, pin, output, yes)
+            }
+            GpgCommands::Verify { chiave, certifier } => {
+                commands::gpg::verify_key(chiave, certifier)
+            }
+        },
         Commands::Completions { shell, install } => {
             commands::completions::execute(shell, install)
         }

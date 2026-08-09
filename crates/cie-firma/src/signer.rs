@@ -141,7 +141,7 @@ pub fn card_id(cie: &CieCard) -> Result<String> {
 /// Stands in for the card: takes a hash, builds the DigestInfo, applies PKCS#1
 /// v1.5 padding and RSA. Exactly what `sign_sha256` does, so the signing path
 /// the tests exercise is the real one.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-signer"))]
 pub mod fake {
     use super::*;
 

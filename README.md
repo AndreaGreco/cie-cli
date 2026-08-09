@@ -68,6 +68,9 @@ cie sign <file>       # firma detached: <file>.sig + <file>.cer
 cie sign-p7m <file>   # CAdES: contenuto e firma insieme in <file>.p7m
 cie sign-pdf <f.pdf>  # PAdES: la firma finisce dentro il PDF
 
+cie gpg certify <chiave.asc>  # certifica una chiave OpenPGP con la CIE
+cie gpg verify <chiave.asc>   # mostra e verifica le certification presenti
+
 cie completions --install  # completamento per bash, zsh o fish
 
 cie -vv auth      # con ogni APDU in TX/RX
@@ -89,6 +92,42 @@ lettori marcano con il nastrino): `1` vieta ogni modifica successiva, `2` lascia
 compilare i moduli e firmare — il default, quindi altri possono controfirmare —
 e `3` permette anche le annotazioni. Ammessa solo sulla prima firma di un
 documento.
+
+### La certificazione OpenPGP
+
+`cie gpg certify` firma con la chiave della carta una certification OpenPGP
+standard sulla tua chiave: il modo di dire «questa chiave e' del titolare di
+quella CIE» con un artefatto che GnuPG capisce da solo. La chiave privata resta
+nella carta, come per ogni altra firma.
+
+Escono tre file:
+
+| File | Contenuto | Dove va |
+|---|---|---|
+| `<chiave>-certificata.asc` | la tua chiave, piu' la certification | pubblicabile |
+| `cie-certifier.asc` | la chiave della CIE come certificato OpenPGP | pubblicabile |
+| `cie-certifier.cer` | il certificato X.509 della carta | **resta a te** |
+
+Il `.cer` contiene il codice fiscale in chiaro — ce lo mette il Ministero, non
+noi — e serve solo a chi deve risalire dalla chiave alla PKI. Lo consegni tu, a
+chi decidi. Nel materiale pubblico il codice fiscale non compare: la User ID del
+certificatore porta nome, cognome e numero della carta, e la firma porta solo lo
+SHA-256 del `.cer`, che e' un impegno vincolante su quale certificato sia.
+
+```bash
+gpg --import cie-certifier.asc chiave-certificata.asc
+gpg --check-sigs <fingerprint>
+```
+
+La certification e' di tipo 0x10 (generic), non 0x13 (positive): 0x13
+dichiarerebbe che l'emittente ha verificato accuratamente la User ID, email
+compresa, e la CIE dell'email non sa niente. Cosa sia stato verificato davvero
+lo dice la notation `cie-verified@cie-cli`, che contiene `holder-name` e basta.
+
+La chiave certificata resta una normale chiave OpenPGP: continua a firmare i
+commit come prima. La certification viaggia solo se la esporti — `gpg
+--export-options export-minimal` la toglie — quindi puoi tenerla per chi ti
+chiede di dimostrare l'identita' senza pubblicarla.
 
 ### Completamento automatico
 
@@ -183,6 +222,10 @@ crates/
 │       ├── pades.rs             PAdES B-B, riquadro visibile
 │       ├── cades.rs             CAdES enveloping (.p7m)
 │       └── detached.rs          firma RSA grezza, con verifica locale
+├── cie-pgp/                     certificazione OpenPGP
+│   └── src/
+│       ├── signer.rs            la carta come firmatario Sequoia
+│       └── lib.rs               certificatore CIE e certification
 ├── cie-cli/                     binario `cie`
 └── cie-gui/                     binario `cie-gui`
     └── src/
@@ -198,6 +241,13 @@ stringhe che l'utente legge. `cie-lib` e `cie-cli` sono ancora in italiano.
 `cie-firma` sta in mezzo apposta: `underskrift` si porta dietro lopdf e un
 parser di font, roba che non ha niente a che fare con una APDU. `cie-lib` resta
 il livello carta puro, come serve al futuro modulo PKCS#11.
+
+`cie-pgp` e' un crate a parte per la stessa ragione: Sequoia dentro `cie-firma`
+finirebbe nella build della GUI senza servire a niente. Vede la carta solo
+attraverso `CryptoSigner`, quindi nessun packet OpenPGP arriva vicino a una
+APDU. L'adapter e' sottile perche' i formati coincidono gia': la carta riceve un
+`DigestInfo(SHA-256)` e restituisce PKCS#1 v1.5, che e' esattamente com'e' fatta
+una firma RSA OpenPGP.
 
 ## Sviluppo
 

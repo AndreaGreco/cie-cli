@@ -9,6 +9,7 @@ use std::io::{self, Write};
 
 pub mod auth;
 pub mod completions;
+pub mod gpg;
 pub mod info;
 pub mod pcsc_test;
 pub mod sign;

@@ -1,0 +1,29 @@
+[package]
+name = "cie-pgp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Certificazione OpenPGP con la chiave di firma della CIE"
+
+[dependencies]
+cie-lib.workspace = true
+cie-firma.workspace = true
+anyhow.workspace = true
+hex = "0.4"
+sha2 = "0.11"
+
+# Niente nettle: e' una dipendenza C, e su Windows la build di `dist` non la
+# regge. Qui non si fa crittografia segreta — la chiave privata sta nella carta
+# e questo livello calcola hash, verifica firme e serializza packet — quindi il
+# backend in Rust puro basta e avanza.
+sequoia-openpgp = { version = "2.4", default-features = false, features = [
+    "crypto-rust",
+    "allow-experimental-crypto",
+    "allow-variable-time-crypto",
+] }
+
+[dev-dependencies]
+cie-firma = { workspace = true, features = ["test-signer"] }
+hex = "0.4"
+sha2 = "0.11"

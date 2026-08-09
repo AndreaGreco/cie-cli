@@ -122,6 +122,20 @@ impl std::fmt::Display for DatiTitolare {
     }
 }
 
+/// Inizio validità di un certificato X.509.
+///
+/// Serve come istante di creazione quando la chiave della carta va rappresentata
+/// in un altro formato: prendere l'ora corrente darebbe una chiave diversa a
+/// ogni esecuzione, mentre `notBefore` è una proprietà della carta e non cambia.
+pub fn inizio_validita(der_data: &[u8]) -> crate::Result<std::time::SystemTime> {
+    use crate::error::CieError;
+
+    let cert = Certificate::from_der(der_data)
+        .map_err(|e| CieError::Protocol(format!("certificato non parsabile: {}", e)))?;
+
+    Ok(cert.tbs_certificate().validity().not_before.to_system_time())
+}
+
 /// Chiave pubblica RSA estratta da un certificato X.509.
 ///
 /// Serve a verificare in locale le firme prodotte dalla carta, senza dipendere
