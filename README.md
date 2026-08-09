@@ -51,9 +51,10 @@ sudo systemctl enable --now pcscd
 
 Il middleware CIE **non** serve.
 
-Per compilare serve anche il fork di `underskrift` in `../underskrift`
-(github.com/AttilioGreco/underskrift, branch `fix/pades-conformance`): il lavoro
-non e' ancora a monte. Vedi `HANDOFF.md`.
+PAdES e CAdES arrivano da `underskrift`, e per ora serve un fork: il lavoro non
+e' ancora a monte. Non devi fare niente — il `Cargo.toml` del workspace punta al
+fork su git e Cargo lo risolve da solo. Per lavorarci sopra in locale, copia
+`.cargo/config.toml.example` in `.cargo/config.toml`.
 
 ## Uso
 
@@ -252,7 +253,7 @@ una firma RSA OpenPGP.
 ## Sviluppo
 
 ```bash
-cargo test      # 46 test, nessuno richiede la carta
+cargo test --workspace   # 67 test, nessuno richiede la carta
 cargo clippy
 ```
 
@@ -265,6 +266,12 @@ C'è anche un vettore end-to-end di una `VERIFY PIN` completa in Secure
 Messaging, calcolato con un riferimento esterno: protegge dall'errore più
 insidioso del protocollo, cioè paddare i TLV singolarmente invece di applicare
 un solo ISO-padding finale.
+
+## Documentazione
+
+Completa, su <https://attiliogreco.github.io/cie-cli/>: guida, riferimento dei
+comandi, specifica della certification OpenPGP e cosa diventa pubblico. Il
+sorgente sta in `docs-site/`.
 
 ## Riferimenti
 

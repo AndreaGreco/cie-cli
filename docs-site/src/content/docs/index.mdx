@@ -1,0 +1,56 @@
+---
+title: CIE-CLI
+description: Parlare alla Carta d'Identita' Elettronica italiana direttamente in PC/SC — firma di documenti e certificazione OpenPGP, senza middleware.
+template: splash
+hero:
+  tagline: La Carta d'Identita' Elettronica in PC/SC diretto. Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di registrazione, niente dati scritti su disco.
+  actions:
+    - text: Installazione
+      link: /cie-cli/guida/installazione/
+      icon: right-arrow
+    - text: Codice su GitHub
+      link: https://github.com/AttilioGreco/cie-cli
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="Firma documenti" icon="document">
+		PAdES dentro il PDF, CAdES in un `.p7m`, o la firma RSA nuda. La chiave
+		privata non lascia mai la carta: la CIE riceve un digest e restituisce una
+		firma.
+
+		[Firmare documenti →](/cie-cli/guida/firma/)
+	</Card>
+	<Card title="Certifica una chiave OpenPGP" icon="approve-check">
+		`cie gpg certify` produce una certification OpenPGP standard firmata dalla
+		carta. GnuPG la importa e la verifica da solo, senza strumenti speciali.
+
+		[Certificare una chiave →](/cie-cli/guida/openpgp/)
+	</Card>
+	<Card title="Il PIN per intero" icon="seti:lock">
+		Il middleware ufficiale tiene meta' del PIN in una cache su disco, cifrata
+		con una chiave derivabile da chiunque abbia la carta. Qui il PIN si digita
+		tutto, quando serve.
+
+		[Come funziona il PIN →](/cie-cli/guida/pin/)
+	</Card>
+	<Card title="Cosa diventa pubblico" icon="information">
+		Il codice fiscale non entra mai nel materiale OpenPGP pubblicabile. Dove
+		finisce ogni dato, e cosa vede chi verifica una tua firma.
+
+		[Privacy →](/cie-cli/riferimento/privacy/)
+	</Card>
+</CardGrid>
+
+## Prima di cominciare
+
+Il certificato che la CIE custodisce e' **di autenticazione**, non di firma
+qualificata. Le firme prodotte con questa chiave non sono firme digitali
+qualificate ai sensi eIDAS, e non sostituiscono un dispositivo di firma
+qualificata. Servono a dimostrare il controllo della carta, che e' un'altra cosa
+e va detta con precisione.
+
+[Limiti e stato del progetto →](/cie-cli/progetto/limiti/)
