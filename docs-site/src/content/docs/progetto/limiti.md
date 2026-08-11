@@ -1,11 +1,11 @@
 ---
 title: Limiti e stato
-description: Cosa funziona, cosa manca, e cosa questo strumento non e' — in particolare riguardo a eIDAS.
+description: Cosa funziona, cosa manca, e cosa questo strumento non è - in particolare riguardo a eIDAS.
 ---
 
 ## Non sono firme qualificate
 
-Il certificato che la CIE custodisce e' **di autenticazione**, non di firma
+Il certificato che la CIE custodisce è **di autenticazione**, non di firma
 qualificata:
 
 | | |
@@ -17,7 +17,7 @@ qualificata:
 Le firme prodotte con questa chiave sono crittograficamente valide e
 verificabili, ma **non sono firme digitali qualificate ai sensi eIDAS** e non
 sostituiscono un dispositivo di firma qualificata. Dimostrano il controllo della
-carta, che e' un'altra cosa.
+carta, che è un'altra cosa.
 
 Questo vale per PAdES, CAdES, la firma nuda e la certification OpenPGP allo
 stesso modo.
@@ -41,10 +41,10 @@ Funzionante e verificato su carta reale (Bit4Id):
 
 **Marca temporale (livello B-T).** Richiede una chiamata di rete a una TSA. Oggi
 il percorso di firma non parla con nessuno all'infuori della carta: senza la
-feature `tsp` nel build non c'e' nemmeno un client HTTP. Senza marca temporale la
-validita' nel tempo dipende da quella del certificato.
+feature `tsp` nel build non c'è nemmeno un client HTTP. Senza marca temporale la
+validità nel tempo dipende da quella del certificato.
 
-**Modulo PKCS#11.** Un `cdylib` per Firefox e per i client SPID/CieID. E' la
+**Modulo PKCS#11.** Un `cdylib` per Firefox e per i client SPID/CieID. è la
 ragione per cui `cie-lib` resta un livello carta puro.
 
 **LTV.** La carta espone solo il proprio certificato: le CA del Ministero non
@@ -53,15 +53,15 @@ incorporare.
 
 ## Limiti della certificazione OpenPGP
 
-- **L'email non e' attestata dalla CIE.** Vedi la
-  [specifica](/cie-cli/riferimento/specifica-openpgp/).
-- **Senza il certificato X.509, un terzo non puo' stabilire che la chiave
+- **L'email non è attestata dalla CIE.** Vedi la
+  [specifica](/cie-cli/progetto/specifica-openpgp/).
+- **Senza il certificato X.509, un terzo non può stabilire che la chiave
   certificatrice sia davvero una CIE.** Scelta deliberata: il `.cer` contiene il
   codice fiscale.
-- **Nessuna prova a conoscenza zero.** Dimostrare «questa chiave e' stata emessa
+- **Nessuna prova a conoscenza zero.** Dimostrare «questa chiave è stata emessa
   dalla PKI CIE» senza rivelare *chi* richiederebbe una prova ZK sulla catena
   X.509. Esiste come ricerca, non come qualcosa da mettere in questo progetto. Il
-  motivo e' strutturale: la CA firma il `TBSCertificate`, che contiene chiave
+  motivo è strutturale: la CA firma il `TBSCertificate`, che contiene chiave
   pubblica e dati anagrafici insieme, e cambiare un byte invalida la firma.
 
 ## Piattaforme

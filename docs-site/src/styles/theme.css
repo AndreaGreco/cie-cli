@@ -1,0 +1,61 @@
+/* La stessa tavolozza dell'applicazione: Designers Italia / Bootstrap Italia,
+   blu istituzionale su bianco, angoli squadrati. I valori strutturali - sfondo,
+   superficie, bordo, testo - sono gli stessi di crates/cie-gui/src/theme.rs,
+   perche' il sito e il programma dovrebbero sembrare la stessa cosa. */
+
+/* Scuro. */
+:root {
+	--sl-color-accent-low: #0a2a4a;
+	--sl-color-accent: #4fa3ff;
+	--sl-color-accent-high: #b9d9ff;
+
+	--sl-color-white: #ffffff;
+	--sl-color-gray-1: #e8eef4;
+	--sl-color-gray-2: #c2d0de;
+	--sl-color-gray-3: #8fa5bc;
+	--sl-color-gray-4: #56718d;
+	--sl-color-gray-5: #35506b;
+	--sl-color-gray-6: #22384e;
+	--sl-color-black: #16222e;
+}
+
+/* Chiaro. */
+:root[data-theme='light'] {
+	--sl-color-accent-low: #d6e7fa;
+	--sl-color-accent: #0066cc;
+	--sl-color-accent-high: #05407f;
+
+	--sl-color-white: #17324d;
+	--sl-color-gray-1: #1e3a58;
+	--sl-color-gray-2: #2e4b6a;
+	--sl-color-gray-3: #4c6885;
+	--sl-color-gray-4: #7c93ab;
+	--sl-color-gray-5: #c5d2de;
+	--sl-color-gray-6: #e7eef6;
+	--sl-color-gray-7: #f2f7fc;
+	--sl-color-black: #ffffff;
+}
+
+/* Bootstrap Italia e' squadrato: 4 px, non gli 8-12 di un design arrotondato.
+   `--ec-brdRad` e' il raggio dei blocchi di codice di Expressive Code. */
+:root {
+	--ec-brdRad: 4px;
+}
+
+.card,
+.starlight-aside,
+.sl-markdown-content table,
+.sl-markdown-content img {
+	border-radius: 4px;
+}
+
+/* Le tabelle sono meta' di questa documentazione: vanno lette, non decorate. */
+.sl-markdown-content table {
+	border-collapse: collapse;
+	overflow: hidden;
+}
+
+.sl-markdown-content th {
+	background: var(--sl-color-gray-6);
+	font-weight: 600;
+}

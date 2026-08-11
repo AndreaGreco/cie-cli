@@ -16,6 +16,9 @@ export default defineConfig({
 			locales: {
 				root: { label: 'Italiano', lang: 'it' },
 			},
+			customCss: ['./src/styles/theme.css'],
+			// Il banner "in sviluppo" su tutte le pagine, scritto una volta sola.
+			routeMiddleware: './src/routeData.ts',
 			social: [
 				{
 					icon: 'github',
@@ -28,30 +31,31 @@ export default defineConfig({
 			},
 			sidebar: [
 				{
-					label: 'Guida',
+					label: 'Usare Firma CIE',
 					items: [
-						{ label: 'Installazione', slug: 'guida/installazione' },
-						{ label: 'Primi passi', slug: 'guida/primi-passi' },
+						{ label: "Cos'e' e cosa puoi farci", slug: 'guida/cosa-fa' },
+						{ label: 'Installare', slug: 'guida/installazione' },
+						{ label: 'Firmare un documento', slug: 'guida/firmare' },
 						{ label: 'Il PIN', slug: 'guida/pin' },
-						{ label: 'Firmare documenti', slug: 'guida/firma' },
-						{ label: 'Certificare una chiave OpenPGP', slug: 'guida/openpgp' },
-						{ label: 'Interfaccia grafica', slug: 'guida/interfaccia-grafica' },
+						{ label: 'Se qualcosa non va', slug: 'guida/problemi' },
 					],
 				},
 				{
-					label: 'Riferimento',
+					label: 'Riga di comando',
 					items: [
-						{ label: 'Comandi', slug: 'riferimento/comandi' },
-						{ label: 'Specifica della certification', slug: 'riferimento/specifica-openpgp' },
+						{ label: 'Primi passi', slug: 'riferimento/primi-passi' },
+						{ label: 'Tutti i comandi', slug: 'riferimento/comandi' },
+						{ label: 'Certificare una chiave OpenPGP', slug: 'riferimento/openpgp' },
 						{ label: 'Cosa diventa pubblico', slug: 'riferimento/privacy' },
-						{ label: 'Architettura', slug: 'riferimento/architettura' },
 					],
 				},
 				{
-					label: 'Progetto',
+					label: 'Per sviluppatori',
 					items: [
+						{ label: 'Architettura e protocollo', slug: 'progetto/architettura' },
+						{ label: 'Specifica della certification', slug: 'progetto/specifica-openpgp' },
+						{ label: 'Compilare e testare', slug: 'progetto/sviluppo' },
 						{ label: 'Limiti e stato', slug: 'progetto/limiti' },
-						{ label: 'Sviluppo', slug: 'progetto/sviluppo' },
 					],
 				},
 			],

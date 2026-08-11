@@ -1,122 +1,115 @@
 ---
 title: Il PIN
-description: Da dove viene il PIN, il portachiavi di sistema, e perche' qui si digitano tutte e otto le cifre.
+description: Le otto cifre della CIE, cosa succede se le sbagli, e come farsele ricordare dal computer.
 ---
 
-## Perche' tutte e otto le cifre
+Il PIN della CIE è di **otto cifre**, te lo hanno consegnato in due metà:
+le prime quattro sulla ricevuta che ti hanno dato in Comune quando hai chiesto
+la carta, le altre quattro nella busta arrivata a casa insieme alla carta.
 
-Il middleware ufficiale, per funzionare, pretende una registrazione preventiva
-della carta tramite un'applicazione Java. Quella registrazione salva **meta' del
-PIN** in una cache su disco, cifrata con una chiave derivabile da chiunque abbia
-la carta in mano, senza conoscerne il PIN. Da li' in poi chiede solo le altre
-quattro cifre.
+Se lo hai perso dovrai rivolgerti al Comune.
 
-La cache non risolveva un problema tecnico, e nel farlo dimezzava lo spazio di
-ricerca di una credenziale. Qui il PIN si digita per intero, quando serve.
-
-Un PIN che non sia esattamente otto cifre numeriche viene rifiutato in locale,
-prima di arrivare alla carta: non ha senso consumare un tentativo per un valore
-che non puo' essere giusto.
-
-## Da dove viene il PIN
-
-Ogni comando che tocca la carta cerca il PIN in quest'ordine:
-
-1. **L'argomento `--pin`**, se c'e'
-2. **Il portachiavi di sistema**, se quella carta e' stata ricordata
-3. **Il prompt**, che legge senza mostrare a schermo
-
-:::danger[`--pin` finisce nella cronologia]
-`cie sign --pin 12345678 file` lascia il PIN nella history della shell e lo
-rende visibile in `ps` a chiunque sia sulla macchina. Esiste per gli script non
-interattivi; per l'uso quotidiano il prompt e il portachiavi sono migliori sotto
-ogni aspetto.
+:::danger[Attento a quante volte sbagli il PIN, dopo la seconda fermati e controlla in modo accurato]
+La carta conta i tentativi sbagliati. Dopo tre di fila si blocca, e per
+sbloccarla serve il **PUK** - l'altro codice arrivato con la carta. Se non hai
+nemmeno quello, la carta va rifatta.
 :::
 
-## Il portachiavi di sistema
+Per ridurre i possibili errori di battitura, un PIN che non sia di otto cifre numeriche viene rifiutato
+subito, senza nemmeno arrivare alla carta: cosi' una distrazione non ti costa
+un tentativo.
 
-Digitare otto cifre a ogni firma e' scomodo, e la scomodita' e' nemica della
-sicurezza tanto quanto una cache fatta male. La via di mezzo e' salvare il PIN
-**per intero** nel gestore di password del sistema operativo.
+## Salvare il PIN
 
-Dopo una verifica andata a buon fine, e solo se il PIN e' stato digitato a mano,
-`cie-cli` chiede se ricordarlo:
+Digitare continuamente 8 cifre è scomodo, e le cose scomode finiscono
+per essere aggirate male. Per questo, dopo che il PIN è stato accettato, Firma
+CIE ti propone di salvarlo nel **portachiavi** del tuo sistema operativo, cosi' non dovrai più digitarlo.
 
-```
+Da riga di comando la stessa domanda arriva cosi':
+
+```bash
   Ricordare il PIN di questa carta nel portachiavi? [s/N]
 ```
 
-Il portachiavi e' quello del sistema operativo — secret-service su Linux,
-Credential Manager su Windows, Keychain su macOS — dietro la stessa API.
-`cie-cli` non scrive nessun file di cache proprio: il segreto lo custodisce il
-sistema, cifrato a riposo e sbloccato con le credenziali della sessione.
+Il **portachiavi** è il gestore di password del tuo sistema operativo:
+Gestione credenziali su Windows, Portachiavi su macOS, il portachiavi di GNOME su Linux.
 
-La differenza con la cache del middleware non e' «su disco» contro «non su
-disco». E' che li' finiscono **quattro cifre**, in un file suo, cifrate con una
-chiave che chiunque abbia la carta puo' derivare senza conoscere il PIN — quindi
-lo spazio di ricerca si dimezza e la protezione non protegge. Qui ci finiscono
-**tutte e otto**, nel deposito segreti del sistema, con la protezione che quel
-deposito offre a tutte le altre password.
+Firma CIE non scrive nessun file suo: tutti i secret vengono custoditi dal sistema operativo, che li tiene
+cifrato, e lo sblocca quando entri nella tua sessione (Login utente).
 
-### Cosa protegge, e cosa no
+## Oppure no
+
+Rispondere di no è una scelta legittima, ed è quella predefinita: da riga di
+comando basta premere Invio. In quel caso sul disco **non finisce niente** - né
+il PIN né il tuo nome - con questa modalità il programma ti chiede il PIN ogni volta che serve.
+
+:::note[La domanda ricompare]
+Non c'è un "non chiedermelo piu'": finchè digiti il PIN a mano, dopo ogni
+verifica riuscita la domanda torna. Se ti dà fastidio,
+[scrivilo](https://github.com/AttilioGreco/cie-cli/issues).
+:::
+
+## Cosa protegge il portachiavi, e cosa no
 
 | | |
 |---|---|
-| Disco rimosso, immagine, backup | protetto: il segreto e' cifrato a riposo |
-| Un altro utente sulla stessa macchina | protetto |
-| Chi legge `~/.config` o la home | protetto: non c'e' niente da leggere |
-| Un processo che gira **come te**, a sessione sbloccata | **non protetto** |
+| Qualcuno ti ruba il computer o il disco | protetto: il PIN è cifrato |
+| Un'altra persona che usa lo stesso computer con il suo utente | protetto |
+| Chi va a curiosare fra i tuoi file | protetto: non c'è nessun file da leggere |
+| Un programma malevolo che gira **come te**, mentre la sessione è aperta | **non protetto** |
 
-L'ultima riga e' il modello di secret-service, non una particolarita' di
-`cie-cli`: a portachiavi sbloccato, qualunque processo dell'utente puo'
-chiederne il contenuto. Un portachiavi di sistema non e' una difesa contro
-codice malevolo che gira gia' con i tuoi privilegi — per quello serve che il PIN
-resti nella tua testa.
+L'ultima riga vale per qualunque password nel portachiavi, non solo per questa:
+a sessione sbloccata, i programmi che girano come te possono chiederne il contenuto.
+Se è un rischio che ti riguarda, non salvare il PIN.
+:::note[Attenzione alla sicurezza]
+*NON* fidarsi dei programmi nella propria sessione è un problema di sicurezza generale, non specifico della CIE.
+:::
+## Più di una carta
 
-### Una chiave per carta
+Ogni CIE ha la sua voce nel portachiavi, riconosciuta dal numero della carta che è leggibile senza il PIN.  
+È possibile salvare il PIN di più carte, anche se appartengono a persone diverse: il portachiavi le distingue, proprio come fa con le altre password.
 
-La voce nel portachiavi e' indicizzata sull'**ID_Servizi**, il numero letto dal
-chip senza PIN. E' quello che permette a piu' CIE di convivere nello stesso
-portachiavi senza pestarsi i piedi, e che permette di riconoscere quale carta e'
-appoggiata sul lettore mentre il certificato e' ancora chiuso dietro il PIN.
-
-### Cosa sta dentro il segreto, e cosa no
-
-Insieme al PIN vengono ricordati nome, cognome e codice fiscale presi dal
-certificato: sono cio' che permette di mostrare *di chi* e' la carta appena viene
-appoggiata.
-
-Stanno **dentro** il segreto cifrato, mai negli attributi di ricerca. Su
-secret-service gli attributi sono metadati in chiaro, leggibili da chiunque stia
-sul bus di sessione: metterci un codice fiscale significherebbe pubblicarlo a
-ogni processo dell'utente.
-
-### Non salvarlo mai
-
-Salvare e' facoltativo, e la scelta prudente e' quella di default: la domanda si
-risponde con Invio. Se non rispondi `s`, sul disco non finisce **niente** — ne'
-il PIN ne' i dati del titolare — e il comando prosegue come se non l'avesse mai
-chiesto.
-
-Da li' in poi il PIN si digita ogni volta, che e' esattamente il comportamento
-di chi non vuole nessuna traccia sulla macchina.
-
-:::note[La domanda torna]
-Non esiste un «non chiedermelo piu'»: finche' digiti il PIN a mano, dopo ogni
-verifica riuscita la domanda ricompare. Se ti da' fastidio, aprine una issue —
-un flag per zittirla e' un'aggiunta piccola, ma non l'ho messa senza che
-servisse a qualcuno.
+:::caution[Attenzione se condividete l'utente del computer]
+Per quanto sia una pratica comune, condividere un utente del computer con altre persone non è una buona idea.  
+Anche se siete in famiglia, sarebbe bene avere un utente ciascuno, e ognuno ha le sue password.  
+Una volta salvato nel porta chiavi, il PIN è disponibile a chiunque usi quell'utente, senza bisogno di digitarlo, gli bastera avere la carta in mano.  
 :::
 
-### Dimenticare una carta
+Insieme al PIN vengono ricordati nome, cognome e codice fiscale letti dalla  
+carta - dentro il segreto cifrato, mai fra le etichette in chiaro che il  
+portachiavi usa per cercare.
 
-Il portachiavi si gestisce con gli strumenti del sistema. Su Linux, con
-`secret-tool` o con l'applicazione portachiavi del desktop:
+## Dimenticare una carta
+
+In Firma CIE c'è il pulsante **Dimentica** accanto al PIN salvato.
+
+Altrimenti vale il gestore di password del sistema: Gestione credenziali su
+Windows, Accesso Portachiavi su macOS. Su Linux, se preferisci il terminale:
 
 ```bash
 secret-tool search service cie
 ```
 
-Se il portachiavi non e' disponibile o rifiuta di salvare, il comando lo dice e
-prosegue: la firma e' gia' andata a buon fine, e un portachiavi che non
-collabora non e' un buon motivo per fallire.
+Se il portachiavi non è disponibile o si rifiuta di salvare, il programma lo notifica ma la firma è già andata a buon fine, e un portachiavi
+che non collabora non è un buon motivo per buttarla via.
+
+## Perché tutte e otto le cifre
+
+Il middleware ufficiale ne chiede solo quattro. Le altre quattro le tiene
+salvate lui, in un file, protette da una chiave che chiunque abbia la carta in
+mano può ricavare senza conoscere il PIN - il che dimezza le combinazioni da
+provare.
+
+Il PIN si digita per intero, se decidi di salvarlo viene salvato per intero nel
+portachiavi del sistema, con la stessa protezione di tutte le tue altre password.
+
+## Da riga di comando
+
+`cie` cerca il PIN in quest'ordine: l'opzione `--pin` se gliela dai, poi il
+portachiavi, poi te lo chiede.
+
+:::danger[`--pin` resta nella cronologia]
+`cie sign --pin 12345678 file` lascia il PIN nella storia della shell e lo
+rende visibile agli altri processi. Esiste per gli script automatici; per l'uso
+normale il prompt e il portachiavi sono meglio sotto ogni aspetto.
+:::

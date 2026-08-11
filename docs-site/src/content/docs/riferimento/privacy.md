@@ -1,9 +1,9 @@
 ---
 title: Cosa diventa pubblico
-description: Dove finisce ogni dato personale, cosa vede chi verifica una firma, e cosa non si puo' piu' ritirare.
+description: Dove finisce ogni dato personale, cosa vede chi verifica una firma, e cosa non si può piu' ritirare.
 ---
 
-Il dato piu' delicato che la CIE porta con se' e' il **codice fiscale**, che il
+Il dato piu' delicato che la CIE porta con sè è il **codice fiscale**, che il
 Ministero scrive nel subject del certificato X.509. Questa pagina dice dove
 finisce, e dove no.
 
@@ -16,15 +16,15 @@ materiale OpenPGP pubblicabile.
 
 | Dato | Certificato X.509 | User ID del certificatore | Certification |
 |---|:---:|:---:|:---:|
-| Nome e cognome | sì | sì | — |
+| Nome e cognome | sì | sì | - |
 | Codice fiscale | **sì** | no | no |
-| Numero della carta (ID_Servizi) | no | sì | — |
+| Numero della carta (ID_Servizi) | no | sì | - |
 | Numero di serie del certificato | sì | no | no |
-| Emittente e validita' | sì | no | no |
-| SHA-256 del certificato | — | — | sì |
+| Emittente e validità | sì | no | no |
+| SHA-256 del certificato | - | - | sì |
 
-Della certification, quello che diventa pubblico e' la User ID del certificatore
-che vi e' associata: nome, cognome e numero della carta.
+Della certification, quello che diventa pubblico è la User ID del certificatore
+che vi è associata: nome, cognome e numero della carta.
 
 ## I tre file
 
@@ -32,7 +32,7 @@ che vi e' associata: nome, cognome e numero della carta.
 |---|---|
 | `<chiave>-certificata.asc` | sì |
 | `cie-certifier.asc` | sì |
-| `cie-certifier.cer` | **no** — lo consegni tu, a chi decidi |
+| `cie-certifier.cer` | **no** - lo consegni tu, a chi decidi |
 
 ## Uno scenario concreto
 
@@ -47,7 +47,7 @@ un tuo commit ottiene il tuo codice fiscale?
 - Il `.cer` a GitHub non arriva mai.
 
 Se pubblichi anche la chiave certificata, diventano pubblici nome, cognome e
-numero della carta — dalla User ID del certificatore. Il codice fiscale no.
+numero della carta - dalla User ID del certificatore. Il codice fiscale no.
 
 ## La certification viaggia solo se la esporti
 
@@ -58,24 +58,24 @@ gpg --export --export-options export-minimal     # senza
 
 Quindi la scelta resta tua a ogni singola consegna: puoi tenere la chiave
 certificata in locale e pubblicare quella nuda, mostrando la certification solo
-a chi ti chiede di dimostrare l'identita'.
+a chi ti chiede di dimostrare l'identità.
 
 ## Il numero della carta
 
-L'`ID_Servizi` e' stampato sulla carta e si legge dal chip senza PIN. Non e' un
-segreto, ma e' un **identificatore stabile**: correla fra loro tutte le chiavi
+L'`ID_Servizi` è stampato sulla carta e si legge dal chip senza PIN. Non è un
+segreto, ma è un **identificatore stabile**: correla fra loro tutte le chiavi
 che certifichi con quella CIE, e una volta su un keyserver non si toglie piu'.
 
-Sta nella User ID perche' distingue due CIE dello stesso titolare. Se quel caso
-non ti riguarda, e' un dato che stai pubblicando senza guadagnarci niente.
+Sta nella User ID perchè distingue due CIE dello stesso titolare. Se quel caso
+non ti riguarda, è un dato che stai pubblicando senza guadagnarci niente.
 
-## Cosa non si puo' ritirare
+## Cosa non si può ritirare
 
-Il materiale OpenPGP diffuso e' irrevocabile in pratica: i keyserver non
-dimenticano e le copie restano. Per questo il default e' il piu' prudente
-possibile, ed e' reversibile in una sola direzione.
+Il materiale OpenPGP diffuso è irrevocabile in pratica: i keyserver non
+dimenticano e le copie restano. Per questo il default è il piu' prudente
+possibile, ed è reversibile in una sola direzione.
 
-- Il `.cer` si puo' **sempre** consegnare dopo, e la catena verso la PKI si
+- Il `.cer` si può **sempre** consegnare dopo, e la catena verso la PKI si
   ricompone senza rifirmare niente.
 - Un codice fiscale finito su un keyserver non si toglie piu'.
 
@@ -90,8 +90,8 @@ Vedi [Il PIN](/cie-cli/guida/pin/).
 ## Cosa `cie-cli` non fa
 
 - Non scrive nessun file di cache suo, e in particolare nessun pezzo di PIN. Il
-  solo segreto che puo' essere persistito e' il PIN intero, se scegli di
-  affidarlo al gestore di password del sistema — vedi [Il PIN](/cie-cli/guida/pin/).
+  solo segreto che può essere persistito è il PIN intero, se scegli di
+  affidarlo al gestore di password del sistema - vedi [Il PIN](/cie-cli/guida/pin/).
 - Non parla con la rete durante la firma: senza la feature di marca temporale nel
-  build non c'e' nemmeno un client HTTP.
+  build non c'è nemmeno un client HTTP.
 - Non manda niente a nessun servizio, di nessun tipo.

@@ -1,17 +1,20 @@
 ---
 title: Comandi
-description: Riferimento completo del binario cie — opzioni, default e file prodotti.
+description: Riferimento completo del binario cie - opzioni, default e file prodotti.
 ---
+
+Tutte le opzioni di `cie`, comando per comando. Se stai cercando come si firma
+un documento, parti da [Primi passi](/cie-cli/riferimento/primi-passi/).
 
 ```
 cie [-v...] <comando>
 ```
 
-`-v` alza la verbosita': `-v` informativo, `-vv` ogni APDU in TX e RX, `-vvv`
-tutto. E' la prima cosa da provare quando qualcosa non torna.
+`-v` alza la verbosità: `-v` informativo, `-vv` ogni APDU in TX e RX, `-vvv`
+tutto. è la prima cosa da provare quando qualcosa non torna.
 
 L'opzione `--pin` esiste su tutti i comandi che toccano la carta. Senza, il PIN
-viene dal portachiavi di sistema o da un prompt che non mostra a schermo — vedi
+viene dal portachiavi di sistema o da un prompt che non mostra a schermo - vedi
 [Il PIN](/cie-cli/guida/pin/).
 
 :::danger
@@ -35,7 +38,7 @@ Canale sicuro, verifica del PIN, lettura dei dati protetti.
 | Opzione | Default | Effetto |
 |---|---|---|
 | `-p, --pin <PIN>` | portachiavi o prompt | il PIN, 8 cifre |
-| `--dump-cert <FILE>` | — | salva su file il certificato della carta, in DER |
+| `--dump-cert <FILE>` | - | salva su file il certificato della carta, in DER |
 
 ## `cie sign <file>`
 
@@ -68,8 +71,8 @@ PAdES B-B: la firma finisce dentro il PDF, con un riquadro visibile.
 | `-p, --pin <PIN>` | portachiavi o prompt | |
 | `-o, --output <FILE>` | `<file>-firmato.pdf` | |
 | `--pagina <N>` | `1` | pagina del riquadro, contata da 1 |
-| `--motivo <TESTO>` | — | una riga in piu' nel riquadro |
-| `--certifica [1-3]` | — (`2` se dato senza valore) | firma di certificazione |
+| `--motivo <TESTO>` | - | una riga in piu' nel riquadro |
+| `--certifica [1-3]` | - (`2` se dato senza valore) | firma di certificazione |
 
 `--certifica`: `1` vieta ogni modifica, `2` lascia compilare moduli e firmare,
 `3` permette anche le annotazioni. Ammessa solo sulla prima firma di un
@@ -81,16 +84,28 @@ Certifica con la CIE una User ID di una chiave OpenPGP.
 
 | Opzione | Default | Effetto |
 |---|---|---|
+| `<chiave>` | - | file, oppure `-` per leggere da stdin |
 | `--uid <N>` | chiede a video | quale User ID certificare, da 1 |
 | `-p, --pin <PIN>` | portachiavi o prompt | |
-| `-o, --output <FILE>` | `<chiave>-certificata.asc` | |
-| `--yes` | — | non chiede conferma se il nome non corrisponde alla CIE |
+| `-o, --output <FILE>` | `<chiave>-certificata.asc` | `-` per stdout |
+| `--outdir <DIR>` | accanto all'output | dove finiscono i due file del certificatore |
+| `--yes` | - | non chiede conferma se il nome non corrisponde alla CIE |
 
 Scrive tre file: la chiave certificata, `cie-certifier.asc` e
-`cie-certifier.cer`. Gli ultimi due finiscono nella stessa directory
-dell'output.
+`cie-certifier.cer`.
 
-Accetta chiavi in armor ASCII o binarie.
+Accetta chiavi in armor ASCII o binarie, e sta in una pipe:
+
+```bash
+gpg --export <fingerprint> | cie gpg certify - --uid 1 --outdir ~/cie-pgp | gpg --import
+```
+
+Con la chiave da stdin l'uscita passa a stdout e tutto il resto - avanzamento,
+domande, riepilogo - va su stderr. Nella stessa condizione non si puo' chiedere
+niente a video: se le User ID sono piu' d'una serve `--uid`, se il nome non
+corrisponde alla CIE serve `--yes`, e il PIN deve arrivare dal portachiavi o da
+`-p`. I due file del certificatore restano su disco anche in pipe: `--outdir`
+decide dove.
 
 ## `cie gpg verify <chiave>`
 
@@ -112,5 +127,7 @@ verificate.
 
 ## `cie-gui`
 
-Binario separato, con le stesse firme e il documento davanti. Vedi
-[Interfaccia grafica](/cie-cli/guida/interfaccia-grafica/).
+Il binario di **Firma CIE**: stesse firme, con il documento davanti e il
+riquadro da posizionare a mano. Si installa a parte, vedi
+[Installare](/cie-cli/guida/installazione/) e [Firmare un
+documento](/cie-cli/guida/firmare/).

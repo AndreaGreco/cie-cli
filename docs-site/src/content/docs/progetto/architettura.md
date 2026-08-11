@@ -1,7 +1,28 @@
 ---
-title: Architettura
-description: I cinque crate del workspace, perche' i confini stanno dove stanno, e come si comunicano.
+title: Architettura e protocollo
+description: Il percorso fino a una firma, i cinque crate del workspace
 ---
+
+## Il percorso fino a una firma
+
+Ogni comando che tocca la carta ripete la stessa sequenza, ed è quella che
+`cie auth` esegue da sola:
+
+1. **Connessione** al lettore e identificazione della carta dall'ATR
+2. **Canale sicuro** - Diffie-Hellman e autenticazione mutua DAPP, con verifica
+   della firma del chip; da qui in poi tutto viaggia cifrato in 3DES-CBC con
+   Retail MAC verificato in entrambe le direzioni
+3. **VERIFY PIN** dentro il canale
+4. **Lettura del certificato** dal file `0x1003`
+
+I file protetti richiedono il canale attivo: il PIN da solo non basta, e la CIE
+rifiuta la `VERIFY` finchè il canale non è stabilito.
+
+Il PIN viene risolto **prima** che il lettore venga toccato. Se manca o non è
+otto cifre numeriche, meglio scoprirlo senza aver aperto un canale sicuro per
+niente e senza consumare un tentativo.
+
+## I crate
 
 ```
 crates/
@@ -38,14 +59,14 @@ fn certificate_der(&self) -> &[u8];
 ```
 
 `CieSigner` lo implementa mandando il digest alla carta. Nessun livello sopra
-vede mai una chiave: consegna 32 byte e ne riceve 256. E' lo stesso schema che
-usano gli HSM e la firma remota, ed e' la ragione per cui librerie di firma
+vede mai una chiave: consegna 32 byte e ne riceve 256. è lo stesso schema che
+usano gli HSM e la firma remota, ed è la ragione per cui librerie di firma
 scritte per chiavi in memoria funzionano con una chiave non estraibile.
 
-## Perche' i confini stanno dove stanno
+## Perchè i confini stanno dove stanno
 
 **`cie-lib` resta il livello carta puro.** APDU, canale sicuro, PIN, lettura
-file. Niente contenitori di firma, niente OpenPGP. E' la forma che serve al
+file. Niente contenitori di firma, niente OpenPGP. è la forma che serve al
 futuro modulo PKCS#11, che deve esporre `C_Sign` senza trascinarsi dietro il
 resto.
 
@@ -53,7 +74,7 @@ resto.
 parser di font: roba che non ha niente a che fare con una APDU, e che il modulo
 PKCS#11 non deve ereditare.
 
-**`cie-pgp` e' un crate a parte per la stessa ragione.** `cie-gui` dipende da
+**`cie-pgp` è un crate a parte per la stessa ragione.** `cie-gui` dipende da
 `cie-firma`; Sequoia dentro `cie-firma` finirebbe nella build della GUI senza
 servire a niente.
 
@@ -63,9 +84,9 @@ servire a niente.
 OpenPGP arriva vicino a una APDU, e nessuna logica di carta entra nel livello
 OpenPGP.
 
-L'adapter e' sottile perche' i due formati coincidono gia': la carta riceve un
-`DigestInfo(SHA-256)` e restituisce PKCS#1 v1.5, che e' esattamente com'e' fatta
-una firma RSA OpenPGP. Non c'e' nessuna conversione, solo l'involucro da
+L'adapter è due formati coincidono già: la carta riceve un
+`DigestInfo(SHA-256)` e restituisce PKCS#1 v1.5, che com'è fatta
+una firma RSA OpenPGP. Non c'è nessuna conversione, solo l'involucro da
 cambiare.
 
 ```rust
@@ -82,23 +103,12 @@ primitiva di firma hardware. Nessun packet, nessuna canonicalizzazione e nessun
 hashing di certification scritti a mano.
 
 :::note[Una trappola che vale la pena conoscere]
-`Signer::acceptable_hashes` e' consultato solo dal firmatario di streaming, non
-da `SignatureBuilder`: lasciato a se', il builder sceglie SHA-512 e la carta
+`Signer::acceptable_hashes` è consultato solo dal firmatario di streaming, non
+da `SignatureBuilder`: lasciato a sè, il builder sceglie SHA-512 e la carta
 rifiuta. L'hash va imposto con `set_hash_algo`.
 :::
 
 ## Il backend crittografico di Sequoia
 
-`sequoia-openpgp` usa di default nettle, una dipendenza C che complica la build
-multipiattaforma. Qui si usa `crypto-rust`, in Rust puro, senza dipendenze di
-sistema.
-
-E' adeguato al caso d'uso: in questo livello non si fa crittografia segreta —
-solo hash, verifica RSA e serializzazione di packet — perche' la chiave privata
-e' nella carta.
-
-## Lingua del codice
-
-`cie-firma`, `cie-pgp` e `cie-gui` sono scritti in inglese; in italiano restano
-solo le stringhe che l'utente legge. `cie-lib` e `cie-cli` sono ancora in
-italiano.
+`sequoia-openpgp` Per evitare di complicare la build con librerie di sistema,
+uso `crypto-rust`.

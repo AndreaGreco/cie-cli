@@ -1,93 +1,117 @@
 ---
-title: Installazione
-description: Requisiti, lettore PC/SC, pcscd e compilazione di cie-cli.
+title: Installare
+description: Scaricare e installare Firma CIE su Windows, macOS e Linux, e collegare il lettore di smart card.
 ---
 
-## Cosa serve
+Tutto quello che serve sta sulla [pagina dei
+download](https://github.com/AttilioGreco/cie-cli/releases/latest). Scegli il
+file per il tuo sistema, dalla lista qui sotto.
 
-- Un lettore di smart card PC/SC e una **CIE 3.0**
-- `pcscd` in esecuzione
-- Rust stabile, per compilare
+Il programma con le finestre si chiama **Firma CIE**. Se preferisci la riga di
+comando c'è anche `cie`, piu' in fondo.
 
-Il middleware CIE **non** serve, e non va installato: questo progetto parla alla
-carta direttamente in PC/SC.
+## Windows
 
-## Il demone PC/SC
+1. Dalla [pagina dei
+   download](https://github.com/AttilioGreco/cie-cli/releases/latest) scarica
+   il file che finisce per **`-setup.exe`**.
+2. Aprilo e vai avanti. Non chiede la password di amministratore: si installa
+   solo per il tuo utente.
+3. Trovi **Firma CIE** nel menu Start.
+
+:::caution[Windows dirà che il programma non è sicuro]
+Compare una finestra blu, **"Windows ha protetto il PC"**. Succede a tutti i
+programmi non firmati con un certificato commerciale, e questo non lo è.
+Visto che un certificato di quel tipo costa circa 300 euro l'anno, e io sono
+uno sviluppatore indipendente, se non ti fidi del programma è legittimo, non installarlo.
+Se pensi di essere in grado, analizza il codice: è tutto disponibile.
+
+Se hai scaricato il file dalla pagina dei download qui sopra, clicca
+**"Ulteriori informazioni"** e poi **"Esegui comunque"**.
+:::
+
+Il lettore di smart card non ha bisogno di niente: Windows ha il supporto già
+dentro e il driver del lettore se lo scarica da solo la prima volta che lo
+colleghi. Aspetta che finisca prima di aprire Firma CIE.
+
+## macOS
+
+1. Scarica il file **`.dmg`** - quello con `aarch64` se il Mac ha un chip
+   Apple (M1, M2, M3...), quello con `x86_64` se è un Mac Intel.
+2. Aprilo e trascina **Firma CIE** nella cartella Applicazioni.
+
+:::caution[La prima apertura va fatta col tasto destro]
+macOS non apre le applicazioni scaricate da fuori dall'App Store: dice che
+proviene da **"uno sviluppatore non identificato"**.
+
+Fai clic destro sull'icona di Firma CIE, scegli **Apri**, e conferma **Apri**
+anche nella finestra che compare. Solo la prima volta.
+:::
+
+## Linux
+
+Su Debian, Ubuntu e derivate scarica il pacchetto **`.deb`** e aprilo con il
+gestore di pacchetti del desktop, oppure da terminale nella cartella dove l'hai
+scaricato:
 
 ```bash
-sudo pacman -S pcsclite ccid          # Arch
+sudo apt install ./*.deb
+```
+
+Altrove c'è l'**`.AppImage`**, che non si installa: si rende eseguibile e si
+apre con un doppio clic.
+
+```bash
+chmod +x *.AppImage
+```
+
+Su Linux il servizio che parla con il lettore va acceso a mano, una volta sola:
+
+```bash
 sudo apt install pcscd pcsc-tools    # Debian/Ubuntu
+sudo pacman -S pcsclite ccid         # Arch
 sudo systemctl enable --now pcscd
 ```
 
-Verifica che il lettore ci sia e che la carta venga vista:
+Il `.deb` si tira dietro `libpcsclite1` da solo; con l'AppImage il servizio
+deve esserci comunque.
+
+## Controlla che il lettore veda la carta
+
+Collega il lettore, appoggia la CIE con il chip verso il basso e aspetta un
+paio di secondi. Poi apri Firma CIE: se scegli un documento e clicchi
+**Firma**, il programma ti chiede il PIN. Se invece dice che non trova la
+carta, vedi [Se qualcosa non va](/cie-cli/guida/problemi/).
+
+## La riga di comando
+
+`cie` fa le stesse firme senza finestre, e in piu' legge i dati della carta e
+certifica chiavi OpenPGP. Su Linux e macOS:
 
 ```bash
-pcsc_scan
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/AttilioGreco/cie-cli/releases/latest/download/cie-cli-installer.sh | sh
 ```
 
-Se `pcsc_scan` non mostra nessun lettore, il problema e' a monte di `cie-cli` e
-va risolto li'. Il driver piu' comune per i lettori USB e' `ccid`.
+Su Windows, in PowerShell:
 
-:::caution[Il middleware ufficiale confligge]
-Se sul sistema c'e' il middleware CIE, puo' tenere occupata la carta o
-riconfigurare `pcscd`. Su una macchina dove entrambi sono presenti, conviene
-fermare i servizi del middleware prima di usare `cie-cli`.
-:::
+```powershell
+irm https://github.com/AttilioGreco/cie-cli/releases/latest/download/cie-cli-installer.ps1 | iex
+```
 
-## Compilare
+Sulla stessa pagina ci sono anche il `.msi` per Windows, il `.pkg` per macOS e
+gli archivi `.tar.xz` / `.zip` da scompattare a mano, uno per piattaforma.
+Accanto a ogni file c'è il suo `.sha256`.
+
+Per aggiornare piu' avanti basta `cie-cli-update`.
+
+Da qui in poi: [Primi passi](/cie-cli/riferimento/primi-passi/).
+
+### Completamento automatico dei comandi
 
 ```bash
-git clone https://github.com/AttilioGreco/cie-cli
-cd cie-cli
-cargo build --release
+cie completions --install
 ```
 
-Il binario esce in `target/release/cie`. Il secondo binario, `cie-gui`, si
-compila con `cargo build --release -p cie-gui`.
-
-### La dipendenza `underskrift`
-
-PAdES e CAdES arrivano da [`underskrift`](https://github.com/AttilioGreco/underskrift),
-e per ora serve un fork: il lavoro non e' ancora a monte. La cosa e' gia'
-sistemata nel `Cargo.toml` del workspace, che punta al fork su git — non devi
-fare niente, Cargo lo risolve da solo al primo build.
-
-```toml
-[patch.crates-io]
-underskrift = { git = "https://github.com/AttilioGreco/underskrift", branch = "main" }
-```
-
-Il fork sta su git e non su un path locale apposta: la CI di release deve poterlo
-risolvere. Se ci lavori sopra in locale, copia `.cargo/config.toml.example` in
-`.cargo/config.toml` per puntare a `../underskrift`.
-
-:::danger[Non committare `Cargo.lock` con il patch locale attivo]
-Finche' `.cargo/config.toml` e' in uso, `Cargo.lock` punta al path locale. La CI
-di release non lo sa risolvere e la build fallisce.
-:::
-
-## Il primo comando
-
-Con la carta nel lettore:
-
-```bash
-cie info
-```
-
-Legge quello che la CIE espone senza PIN. Se risponde, il percorso fino alla
-carta funziona ed e' tutto pronto.
-
-## Completamento automatico
-
-```bash
-cie completions --install      # indovina la shell da $SHELL
-cie completions zsh --install  # oppure la scegli tu
-cie completions fish           # solo stampa, se preferisci piazzarlo a mano
-```
-
-Lo script finisce dove bash e fish lo trovano da soli
-(`~/.local/share/bash-completion/completions/`, `~/.config/fish/completions/`);
-per zsh il comando stampa la riga di `fpath` da aggiungere a `~/.zshrc`.
-
-Vale la pena rilanciarlo dopo un aggiornamento: le opzioni nuove arrivano da li'.
+Indovina la shell da `$SHELL` e mette lo script dove bash o fish lo trovano da
+soli; per zsh stampa la riga da aggiungere a `~/.zshrc`. Vale la pena
+rilanciarlo dopo un aggiornamento.

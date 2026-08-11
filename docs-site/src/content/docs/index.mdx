@@ -1,13 +1,17 @@
 ---
-title: CIE-CLI
-description: Parlare alla Carta d'Identita' Elettronica italiana direttamente in PC/SC — firma di documenti e certificazione OpenPGP, senza middleware.
+title: Firma CIE
+description: Firma i tuoi documenti con la Carta d'Identita' Elettronica. Ti serve la carta, un lettore, e basta.
 template: splash
 hero:
-  tagline: La Carta d'Identita' Elettronica in PC/SC diretto. Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di registrazione, nessun file di cache scritto dallo strumento.
+  tagline: Firma un PDF con la tua Carta d'Identita' Elettronica. Ti serve la carta, un lettore di smart card e il PIN. Nessun programma da registrare, nessun account, niente da configurare.
   actions:
-    - text: Installazione
+    - text: Installa
       link: /cie-cli/guida/installazione/
       icon: right-arrow
+    - text: Cosa puoi farci
+      link: /cie-cli/guida/cosa-fa/
+      icon: information
+      variant: minimal
     - text: Codice su GitHub
       link: https://github.com/AttilioGreco/cie-cli
       icon: external
@@ -17,40 +21,36 @@ hero:
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
 <CardGrid stagger>
-	<Card title="Firma documenti" icon="document">
-		PAdES dentro il PDF, CAdES in un `.p7m`, o la firma RSA nuda. La chiave
-		privata non lascia mai la carta: la CIE riceve un digest e restituisce una
-		firma.
+	<Card title="Tre passi" icon="document">
+		Apri il documento, metti la carta sul lettore, digita il PIN. Il file
+		firmato ti finisce accanto all'originale.
 
-		[Firmare documenti →](/cie-cli/guida/firma/)
+		[Come si firma →](/cie-cli/guida/firmare/)
 	</Card>
-	<Card title="Certifica una chiave OpenPGP" icon="approve-check">
-		`cie gpg certify` produce una certification OpenPGP standard firmata dalla
-		carta. GnuPG la importa e la verifica da solo, senza strumenti speciali.
+	<Card title="Il PIN lo digiti tu" icon="seti:lock">
+		Tutte e otto le cifre, ogni volta - oppure una volta sola, se lo fai
+		ricordare al portachiavi del tuo computer.
 
-		[Certificare una chiave →](/cie-cli/guida/openpgp/)
+		[Il PIN →](/cie-cli/guida/pin/)
 	</Card>
-	<Card title="Il PIN per intero" icon="seti:lock">
-		Il middleware ufficiale tiene meta' del PIN sotto una protezione che chiunque
-		abbia la carta sa derivare. Qui si digita tutto, e se lo vuoi comodo va tutto
-		nel gestore di password del sistema — o da nessuna parte, se preferisci.
+	<Card title="Non serve altro" icon="approve-check">
+		Niente middleware CIE da installare, niente registrazione della carta,
+		nessun dato che parte verso internet.
 
-		[Come funziona il PIN →](/cie-cli/guida/pin/)
+		[Cos'e' e cosa puoi farci →](/cie-cli/guida/cosa-fa/)
 	</Card>
-	<Card title="Cosa diventa pubblico" icon="information">
-		Il codice fiscale non entra mai nel materiale OpenPGP pubblicabile. Dove
-		finisce ogni dato, e cosa vede chi verifica una tua firma.
+	<Card title="Se qualcosa non va" icon="warning">
+		Il lettore non vede la carta, il PIN non viene accettato, il PDF non si
+		apre: le cose che capitano davvero, e cosa fare.
 
-		[Privacy →](/cie-cli/riferimento/privacy/)
+		[Se qualcosa non va →](/cie-cli/guida/problemi/)
 	</Card>
 </CardGrid>
 
-## Prima di cominciare
+## Una cosa da sapere prima
 
-Il certificato che la CIE custodisce e' **di autenticazione**, non di firma
-qualificata. Le firme prodotte con questa chiave non sono firme digitali
-qualificate ai sensi eIDAS, e non sostituiscono un dispositivo di firma
-qualificata. Servono a dimostrare il controllo della carta, che e' un'altra cosa
-e va detta con precisione.
+La firma della CIE **non** e' la firma digitale qualificata che vendono i
+gestori accreditati. Per gli uffici pubblici va bene lo stesso, per un privato
+che pretende una firma qualificata no.
 
-[Limiti e stato del progetto →](/cie-cli/progetto/limiti/)
+[Te la spieghiamo per bene →](/cie-cli/guida/cosa-fa/)
