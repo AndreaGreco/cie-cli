@@ -7,6 +7,8 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-12
+
 ## [0.1.3] - 2026-08-08
 
 ## [0.1.1] - 2026-08-08
