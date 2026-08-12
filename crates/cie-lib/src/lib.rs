@@ -53,6 +53,6 @@ pub mod secure_messaging;
 // Re-export principali
 pub use error::{CieError, Result};
 pub use titolare::DatiTitolare;
-pub use pcsc_direct::{PcscContext, PcscCard};
+pub use pcsc_direct::{CardStatus, PcscContext, PcscCard, ReaderWatch};
 pub use apdu::{CieCard, CieApdu, CieFileId, CieType};
 pub use secure_messaging::SecureMessaging;

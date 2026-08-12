@@ -74,6 +74,84 @@ impl PcscContext {
     }
 }
 
+/// Cosa c'e' sul lettore, senza aprire nulla.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CardStatus {
+    #[default]
+    NoReader,
+    NoCard,
+    Present,
+}
+
+/// Sorveglia lettori e carte, cosi' quello che viene collegato dopo l'avvio
+/// non passa inosservato.
+///
+/// PC/SC blocca finche' non succede qualcosa invece di farci fare polling, e lo
+/// pseudo-lettore `\\?PnP?\Notification` estende la stessa cosa ai lettori.
+pub struct ReaderWatch {
+    ctx: Context,
+    states: Vec<ReaderState>,
+}
+
+impl ReaderWatch {
+    pub fn new() -> Result<Self> {
+        let ctx = Context::establish(Scope::User)
+            .map_err(|e| CieError::Transport(format!("contesto PC/SC: {:?}", e)))?;
+        Ok(Self {
+            ctx,
+            states: vec![ReaderState::new(PNP_NOTIFICATION(), State::UNAWARE)],
+        })
+    }
+
+    /// Blocca finche' lettori o carta non cambiano, poi dice cosa c'e' adesso.
+    ///
+    /// La prima chiamata torna subito: non sappiamo ancora niente, quindi la
+    /// situazione attuale e' gia' di per se' un cambiamento.
+    pub fn wait(&mut self) -> Result<CardStatus> {
+        self.states
+            .retain(|s| !s.event_state().intersects(State::UNKNOWN | State::IGNORE));
+
+        // `list_readers` protesta invece di restituire una lista vuota quando
+        // di lettori non ce n'e' nessuno, che qui e' solo una delle risposte.
+        let mut buf = [0; 2048];
+        if let Ok(names) = self.ctx.list_readers(&mut buf) {
+            for name in names {
+                if !self.states.iter().any(|s| s.name() == name) {
+                    self.states.push(ReaderState::new(name, State::UNAWARE));
+                }
+            }
+        }
+        for s in &mut self.states {
+            s.sync_current_state();
+        }
+
+        self.ctx
+            .get_status_change(None, &mut self.states)
+            .map_err(|e| CieError::Transport(format!("attesa sul lettore: {:?}", e)))?;
+
+        Ok(self.status())
+    }
+
+    /// Se il lettore c'e' lo chiediamo di nuovo, invece di dedurlo dagli stati.
+    ///
+    /// Un lettore staccato resta nella lista fino al giro dopo: PC/SC lo marca
+    /// morto, non lo toglie. Dedurlo da li' vorrebbe dire rispondere "nessuna
+    /// carta" a chi il lettore l'ha appena sfilato.
+    fn status(&self) -> CardStatus {
+        let mut buf = [0; 2048];
+        let readers = self.ctx.list_readers(&mut buf).map_or(0, Iterator::count);
+        if readers == 0 {
+            return CardStatus::NoReader;
+        }
+
+        if self.states.iter().any(|s| s.event_state().contains(State::PRESENT)) {
+            CardStatus::Present
+        } else {
+            CardStatus::NoCard
+        }
+    }
+}
+
 /// Rappresenta una connessione attiva con una CIE
 pub struct PcscCard {
     card: Card,
@@ -165,6 +243,17 @@ mod tests {
         let readers = ctx.list_readers().unwrap();
         println!("Lettori trovati: {:?}", readers);
         assert!(!readers.is_empty());
+    }
+
+    /// La prima `wait()` deve tornare subito con la situazione attuale: e' su
+    /// questo che si regge la barra di stato appena la finestra si apre.
+    #[test]
+    #[ignore] // Richiede lettore fisico
+    fn test_watch_reports_at_once() {
+        let mut watch = ReaderWatch::new().unwrap();
+        let status = watch.wait().unwrap();
+        println!("stato iniziale: {:?}", status);
+        assert_ne!(status, CardStatus::NoReader, "lettore non visto");
     }
 
     #[test]

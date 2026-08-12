@@ -28,10 +28,13 @@ pub fn open_card(ctx: &PcscContext, pin: Option<String>) -> Result<CieSigner> {
 
     // The previous line is closed by the next step arriving: the callback knows
     // what is about to start, not what has finished.
+    //
+    // Progress goes to stderr: stdout may be carrying the artefact itself, as
+    // it does for `cie gpg certify -`.
     let open = Cell::new(false);
     let print = |s: Step| {
         if open.get() {
-            println!("✓");
+            eprintln!("✓");
         }
         let text = match s {
             Step::Connecting => "Connessione alla carta...",
@@ -39,15 +42,15 @@ pub fn open_card(ctx: &PcscContext, pin: Option<String>) -> Result<CieSigner> {
             Step::Pin => "Verifica del PIN...",
             Step::Certificate => "Lettura del certificato...",
         };
-        print!("  {} ", text);
-        let _ = io::stdout().flush();
+        eprint!("  {} ", text);
+        let _ = io::stderr().flush();
         open.set(true);
     };
 
-    println!();
+    eprintln!();
     let outcome = cie_firma::open_and_authenticate(ctx, &pin, &print);
     if open.get() {
-        println!("{}", if outcome.is_ok() { "✓" } else { "✗" });
+        eprintln!("{}", if outcome.is_ok() { "✓" } else { "✗" });
     }
 
     // Only now is the PIN known to be right, and only now does the certificate
@@ -80,14 +83,14 @@ pub fn resolve_pin(pin: Option<String>, card: Option<&str>) -> Result<(String, b
         (Some(p), _) => (p, false),
         (None, Some(entry)) => {
             match entry.holder() {
-                Some(who) => println!("  PIN dal portachiavi ({who})."),
-                None => println!("  PIN dal portachiavi."),
+                Some(who) => eprintln!("  PIN dal portachiavi ({who})."),
+                None => eprintln!("  PIN dal portachiavi."),
             }
             (entry.pin, false)
         }
         (None, None) => {
-            print!("  Inserisci PIN (8 cifre): ");
-            io::stdout().flush()?;
+            eprint!("  Inserisci PIN (8 cifre): ");
+            io::stderr().flush()?;
             (rpassword::read_password()?, true)
         }
     };
@@ -107,8 +110,8 @@ pub fn resolve_pin(pin: Option<String>, card: Option<&str>) -> Result<(String, b
 /// A keyring that refuses is no reason to fail: say so and move on, the
 /// signature already went through.
 fn offer_to_remember(card: &str, pin: &str, certificate: &[u8]) {
-    print!("\n  Ricordare il PIN di questa carta nel portachiavi? [s/N] ");
-    if io::stdout().flush().is_err() {
+    eprint!("\n  Ricordare il PIN di questa carta nel portachiavi? [s/N] ");
+    if io::stderr().flush().is_err() {
         return;
     }
     let mut answer = String::new();

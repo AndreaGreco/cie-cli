@@ -11,6 +11,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 
 use cie_firma::PadesOptions;
 use cie_firma::keyring::{self, CardSecret};
+use cie_lib::CardStatus;
 use rust_i18n::t;
 
 use crate::job::{self, Kind, Request};
@@ -87,6 +88,8 @@ pub enum Message {
 
     // Background
     Tick,
+    /// The reader gained or lost something.
+    CardChanged(CardStatus),
     ForgetCard,
     ThemeChanged(Mode),
 }
@@ -126,8 +129,12 @@ pub enum Phase {
 /// The card on the reader, as far as we know.
 #[derive(Debug, Default)]
 pub struct Card {
+    pub status: CardStatus,
     pub id: Option<String>,
     pub stored: Option<CardSecret>,
+    /// The card has already been asked who it is. `id` stays `None` when it
+    /// would not say, and without this we would keep asking forever.
+    pub asked: bool,
 }
 
 pub struct State {
@@ -195,22 +202,21 @@ impl Default for State {
 }
 
 impl State {
-    /// Starts asking the reader who is on it. No PIN involved.
-    pub fn new() -> Self {
-        Self {
-            identifying: Some(job::identify()),
-            ..Self::default()
-        }
-    }
-
     /// True while something in the background needs draining.
     pub fn busy(&self) -> bool {
         self.identifying.is_some() || self.job.is_some()
     }
 
-    /// A document is enough to press Firma: the PIN is asked afterwards.
+    /// A document and a card on the reader are enough to press Firma: the PIN
+    /// is asked afterwards.
+    ///
+    /// Not while that card is being identified, though: that thread holds the
+    /// reader, and signing alongside it would make one of the two fail.
     pub fn can_sign(&self) -> bool {
-        self.bytes.is_some() && self.job.is_none()
+        self.bytes.is_some()
+            && self.card.status == CardStatus::Present
+            && self.job.is_none()
+            && self.identifying.is_none()
     }
 
     pub fn shows_preview(&self) -> bool {
@@ -301,6 +307,10 @@ impl State {
             }
 
             Message::Tick => self.poll(),
+            Message::CardChanged(status) => {
+                self.set_status(status);
+                self.identify_if_needed();
+            }
             Message::ForgetCard => self.forget(),
             Message::ThemeChanged(mode) => self.mode = mode,
 
@@ -451,9 +461,19 @@ impl State {
         {
             self.card.stored = id.as_deref().and_then(keyring::read);
             self.card.id = id;
+            self.card.asked = true;
             self.identifying = None;
         }
 
+        if self.job.is_some() {
+            self.poll_job();
+            // The reader may have come free, with a card on it nobody has
+            // asked about yet.
+            self.identify_if_needed();
+        }
+    }
+
+    fn poll_job(&mut self) {
         let Some(rx) = &self.job else { return };
         loop {
             match rx.try_recv() {
@@ -481,6 +501,33 @@ impl State {
                     return;
                 }
             }
+        }
+    }
+
+    /// The reader changed. Anything read off the old card stops being true the
+    /// moment it leaves — including the PIN the keyring handed over for it.
+    fn set_status(&mut self, status: CardStatus) {
+        if status == self.card.status {
+            return;
+        }
+        self.card = Card {
+            status,
+            ..Card::default()
+        };
+        self.identifying = None;
+    }
+
+    /// Asks the card who it is, unless somebody else is on the reader.
+    ///
+    /// Called again once a signature ends: while one is running the reader is
+    /// taken, and the card that was in it never got asked.
+    fn identify_if_needed(&mut self) {
+        if self.card.status == CardStatus::Present
+            && !self.card.asked
+            && self.identifying.is_none()
+            && self.job.is_none()
+        {
+            self.identifying = Some(job::identify());
         }
     }
 
@@ -568,12 +615,19 @@ mod tests {
         assert_eq!(state.output.extension().unwrap(), "p7m");
     }
 
-    /// Firma stays shut until there is something to sign.
+    /// Firma stays shut until there is something to sign and a card to sign it
+    /// with: without both, the press could only end in an error panel.
     #[test]
-    fn signing_needs_a_document() {
+    fn signing_needs_a_document_and_a_card() {
         assert!(!State::default().can_sign());
 
-        let (state, _dir) = with_a_pdf();
+        let (mut state, _dir) = with_a_pdf();
+        assert!(!state.can_sign(), "no reader to sign with");
+
+        state.set_status(CardStatus::NoCard);
+        assert!(!state.can_sign(), "a reader on its own signs nothing");
+
+        state.set_status(CardStatus::Present);
         assert!(state.can_sign());
     }
 
@@ -702,6 +756,27 @@ mod tests {
     fn opening_a_document_rasterises_it() {
         let (state, _dir) = with_a_pdf();
         assert!(state.page_image.is_some());
+    }
+
+    /// Taking the card out has to take everything read off it with it: the id
+    /// on the bar, and the PIN the keyring handed over for that card.
+    #[test]
+    fn removing_the_card_forgets_it() {
+        let mut state = State::default();
+        state.set_status(CardStatus::Present);
+        state.card.id = Some("1234".into());
+        state.card.stored = Some(CardSecret::default());
+        state.card.asked = true;
+
+        state.set_status(CardStatus::NoCard);
+        assert_eq!(state.card.status, CardStatus::NoCard);
+        assert!(state.card.id.is_none());
+        assert!(state.card.stored.is_none());
+
+        // ...and the next card gets asked who it is, rather than inheriting the
+        // answer the last one gave.
+        state.set_status(CardStatus::Present);
+        assert!(!state.card.asked);
     }
 
     /// Paging stops at both ends instead of panicking on the index.

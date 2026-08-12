@@ -173,6 +173,20 @@ keyring:
     it: PIN nel portachiavi
     en: PIN in the keyring
 
+card:
+  no_reader:
+    it: Nessun lettore
+    en: No reader
+  no_card:
+    it: Lettore collegato, nessuna carta
+    en: Reader connected, no card
+  reading:
+    it: Lettura della carta…
+    en: Reading the card…
+  unreadable:
+    it: Carta non riconosciuta
+    en: Card not recognised
+
 theme:
   system:
     it: Segui il sistema

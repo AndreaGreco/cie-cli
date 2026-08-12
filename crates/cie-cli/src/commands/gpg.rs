@@ -10,7 +10,7 @@ use cie_pgp::{
     armored, certifier_cert, certify, holder_matches, CieSequoiaSigner, OpenPgpCert, OpenPgpUserID,
     Parse,
 };
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Certifica con la CIE una User ID di una chiave OpenPGP.
@@ -19,18 +19,30 @@ pub fn certify_key(
     uid: Option<usize>,
     pin: Option<String>,
     uscita: Option<String>,
+    outdir: Option<String>,
     conferma_automatica: bool,
 ) -> Result<()> {
-    let chiave = OpenPgpCert::from_file(&percorso)
-        .with_context(|| format!("lettura della chiave OpenPGP {percorso}"))?;
+    // Con la chiave in arrivo da stdin non si puo' anche chiedere a video: lo
+    // stesso descrittore serve gia' a leggere la chiave.
+    let da_stdin = percorso == "-";
+    let chiave = if da_stdin {
+        let mut buf = Vec::new();
+        io::stdin().read_to_end(&mut buf).context("lettura della chiave OpenPGP da stdin")?;
+        OpenPgpCert::from_bytes(&buf).context("lettura della chiave OpenPGP da stdin")?
+    } else {
+        OpenPgpCert::from_file(&percorso)
+            .with_context(|| format!("lettura della chiave OpenPGP {percorso}"))?
+    };
 
-    println!("\n╔══════════════════════════════════════╗");
-    println!("║      CERTIFICAZIONE OPENPGP          ║");
-    println!("╚══════════════════════════════════════╝\n");
-    println!("Chiave:      {}", chiave.fingerprint());
+    // Tutto il discorsivo va su stderr: stdout puo' essere la chiave stessa,
+    // dentro una pipe verso `gpg --import`.
+    eprintln!("\n╔══════════════════════════════════════╗");
+    eprintln!("║      CERTIFICAZIONE OPENPGP          ║");
+    eprintln!("╚══════════════════════════════════════╝\n");
+    eprintln!("Chiave:      {}", chiave.fingerprint());
 
-    let da_certificare = scegli_uid(&chiave, uid)?;
-    println!("User ID:     {}", stringa(&da_certificare));
+    let da_certificare = scegli_uid(&chiave, uid, !da_stdin)?;
+    eprintln!("User ID:     {}", stringa(&da_certificare));
 
     let ctx = PcscContext::new()?;
     // Il numero della carta si legge senza PIN, e finisce nella User ID del
@@ -42,38 +54,64 @@ pub fn certify_key(
     let dati = DatiTitolare::from_certificate_der(carta.certificate_der()).unwrap_or_default();
 
     if !conferma_automatica {
-        conferma_identita(&dati, &da_certificare)?;
+        conferma_identita(&dati, &da_certificare, !da_stdin)?;
     }
 
-    println!("\n═══ Certificazione ═══");
+    eprintln!("\n═══ Certificazione ═══");
     let mut firmatario = CieSequoiaSigner::new(&carta)?;
 
     let certificatore = certifier_cert(&mut firmatario, numero_carta.as_deref())?;
-    println!("  Certificatore CIE:  {}", certificatore.fingerprint());
+    eprintln!("  Certificatore CIE:  {}", certificatore.fingerprint());
 
     let certificata = certify(&chiave, &da_certificare, &mut firmatario)?;
-    println!("  ✓ Certification prodotta dalla chiave della carta");
+    eprintln!("  ✓ Certification prodotta dalla chiave della carta");
 
-    let out = uscita.map(PathBuf::from).unwrap_or_else(|| accanto(&percorso));
-    let dir = out.parent().unwrap_or(Path::new("."));
+    // Senza un file di uscita la chiave esce su stdout; gli altri due artefatti
+    // non ci stanno, e finiscono comunque su disco.
+    let out = match uscita.as_deref() {
+        Some("-") => None,
+        Some(f) => Some(PathBuf::from(f)),
+        None if da_stdin => None,
+        None => Some(accanto(&percorso)),
+    };
+    let dir = match (&outdir, &out) {
+        (Some(d), _) => PathBuf::from(d),
+        (None, Some(o)) => o.parent().unwrap_or(Path::new(".")).to_path_buf(),
+        (None, None) => PathBuf::from("."),
+    };
     let out_certificatore = dir.join("cie-certifier.asc");
     let out_x509 = dir.join("cie-certifier.cer");
 
-    scrivi(&out, &armored(&certificata)?)?;
+    let armor = armored(&certificata)?;
+    match &out {
+        Some(o) => scrivi(o, &armor)?,
+        None => io::stdout().write_all(&armor).context("scrittura della chiave su stdout")?,
+    }
     scrivi(&out_certificatore, &armored(&certificatore)?)?;
     scrivi(&out_x509, carta.certificate_der())?;
 
-    println!("\n  Chiave certificata:  {}", out.display());
-    println!("  Certificatore CIE:   {}", out_certificatore.display());
-    println!("  Certificato X.509:   {}", out_x509.display());
+    let dove = match &out {
+        Some(o) => o.display().to_string(),
+        None => "(stdout)".into(),
+    };
+    eprintln!("\n  Chiave certificata:  {dove}");
+    eprintln!("  Certificatore CIE:   {}", out_certificatore.display());
+    eprintln!("  Certificato X.509:   {}", out_x509.display());
 
-    println!("\n  Il .cer contiene il tuo codice fiscale in chiaro: non pubblicarlo.");
-    println!("  Serve solo a chi deve risalire dalla chiave alla PKI del Ministero,");
-    println!("  e glielo consegni tu. Gli altri due file sono pubblicabili.");
+    eprintln!("\n  Il .cer contiene il tuo codice fiscale in chiaro: non pubblicarlo.");
+    eprintln!("  Serve solo a chi deve risalire dalla chiave alla PKI del Ministero,");
+    eprintln!("  e glielo consegni tu. Gli altri due file sono pubblicabili.");
 
-    println!("\nVerifica con GnuPG:");
-    println!("  gpg --import {} {}", out_certificatore.display(), out.display());
-    println!("  gpg --check-sigs {}", certificata.fingerprint());
+    eprintln!("\nVerifica con GnuPG:");
+    match &out {
+        Some(o) => {
+            eprintln!("  gpg --import {} {}", out_certificatore.display(), o.display());
+        }
+        // Nella pipe la chiave l'ha gia' presa `gpg --import`: manca il certificatore,
+        // senza il quale la certification resta un `sig?  [no public key]`.
+        None => eprintln!("  gpg --import {}", out_certificatore.display()),
+    }
+    eprintln!("  gpg --check-sigs {}", certificata.fingerprint());
 
     Ok(())
 }
@@ -143,7 +181,11 @@ pub fn verify_key(percorso: String, certificatore: Option<String>) -> Result<()>
 }
 
 /// Quale User ID certificare: quella indicata, l'unica presente, o una scelta.
-fn scegli_uid(chiave: &OpenPgpCert, scelta: Option<usize>) -> Result<OpenPgpUserID> {
+fn scegli_uid(
+    chiave: &OpenPgpCert,
+    scelta: Option<usize>,
+    interattivo: bool,
+) -> Result<OpenPgpUserID> {
     let uids: Vec<_> = chiave.userids().map(|u| u.userid().clone()).collect();
 
     match (scelta, uids.len()) {
@@ -153,13 +195,16 @@ fn scegli_uid(chiave: &OpenPgpCert, scelta: Option<usize>) -> Result<OpenPgpUser
             .nth(n.checked_sub(1).context("le User ID si contano da 1")?)
             .with_context(|| format!("la chiave ha {len} User ID, richiesta la {n}")),
         (None, 1) => Ok(uids.into_iter().next().expect("appena contata")),
+        (None, len) if !interattivo => {
+            bail!("la chiave ha {len} User ID e la scelta non si puo' chiedere: indica --uid N")
+        }
         (None, _) => {
-            println!("\nQuale User ID certificare?");
+            eprintln!("\nQuale User ID certificare?");
             for (i, uid) in uids.iter().enumerate() {
-                println!("  {}. {}", i + 1, stringa(uid));
+                eprintln!("  {}. {}", i + 1, stringa(uid));
             }
-            print!("  Scelta [1-{}]: ", uids.len());
-            io::stdout().flush()?;
+            eprint!("  Scelta [1-{}]: ", uids.len());
+            io::stderr().flush()?;
 
             let mut riga = String::new();
             io::stdin().read_line(&mut riga)?;
@@ -176,9 +221,15 @@ fn scegli_uid(chiave: &OpenPgpCert, scelta: Option<usize>) -> Result<OpenPgpUser
 ///
 /// Una risposta negativa non blocca: certificare uno pseudonimo e' legittimo.
 /// Deve pero' essere una scelta, non una distrazione.
-fn conferma_identita(dati: &DatiTitolare, uid: &OpenPgpUserID) -> Result<()> {
+fn conferma_identita(dati: &DatiTitolare, uid: &OpenPgpUserID, interattivo: bool) -> Result<()> {
     if holder_matches(dati, uid) {
         return Ok(());
+    }
+    if !interattivo {
+        bail!(
+            "il nome della User ID non corrisponde a quello sulla CIE e la conferma \
+             non si puo' chiedere: rilancia con --yes se e' voluto"
+        );
     }
 
     let sulla_carta = match (&dati.cognome, &dati.nome) {
@@ -186,11 +237,11 @@ fn conferma_identita(dati: &DatiTitolare, uid: &OpenPgpUserID) -> Result<()> {
         _ => dati.nome_completo.clone().unwrap_or_else(|| "(assente)".into()),
     };
 
-    println!("\n  ⚠ Il nome della User ID non corrisponde a quello sulla CIE.");
-    println!("      CIE:      {sulla_carta}");
-    println!("      User ID:  {}", stringa(uid));
-    print!("\n  Certificare comunque questa User ID? [s/N] ");
-    io::stdout().flush()?;
+    eprintln!("\n  ⚠ Il nome della User ID non corrisponde a quello sulla CIE.");
+    eprintln!("      CIE:      {sulla_carta}");
+    eprintln!("      User ID:  {}", stringa(uid));
+    eprint!("\n  Certificare comunque questa User ID? [s/N] ");
+    io::stderr().flush()?;
 
     let mut risposta = String::new();
     io::stdin().read_line(&mut risposta)?;

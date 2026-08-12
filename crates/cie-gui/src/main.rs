@@ -13,6 +13,7 @@ mod state;
 mod theme;
 mod view;
 
+use iced::futures::StreamExt;
 use iced::{Size, Subscription, Task, event, keyboard, mouse, time, window};
 use std::time::Duration;
 
@@ -50,7 +51,7 @@ fn main() -> iced::Result {
         window.platform_specific.application_id = "cie-gui".to_string();
     }
 
-    iced::application(State::new, update, view::view)
+    iced::application(State::default, update, view::view)
         .title(|_: &State| rust_i18n::t!("app.title").into_owned())
         .theme(|s: &State| s.mode.theme())
         .subscription(subscription)
@@ -138,12 +139,17 @@ fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Opti
 }
 
 fn subscription(state: &State) -> Subscription<Message> {
-    let input = event::listen_with(input);
+    // The reader pushes: the runtime holds the stream open for as long as the
+    // window lives and wakes up only when something is actually plugged in.
+    let mut subscriptions = vec![
+        event::listen_with(input),
+        Subscription::run(|| job::watch().map(Message::CardChanged)),
+    ];
 
     // The timer only exists while a thread has something to say.
     if state.busy() {
-        Subscription::batch([input, time::every(TICK).map(|_| Message::Tick)])
-    } else {
-        input
+        subscriptions.push(time::every(TICK).map(|_| Message::Tick));
     }
+
+    Subscription::batch(subscriptions)
 }

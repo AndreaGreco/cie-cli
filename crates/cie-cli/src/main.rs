@@ -127,7 +127,7 @@ enum Commands {
 enum GpgCommands {
     /// Certifica con la CIE una User ID di una chiave OpenPGP
     Certify {
-        /// Chiave OpenPGP da certificare (armor ASCII o binaria)
+        /// Chiave OpenPGP da certificare (armor ASCII o binaria). `-` per stdin.
         #[arg(value_hint = ValueHint::FilePath)]
         chiave: String,
 
@@ -139,9 +139,14 @@ enum GpgCommands {
         #[arg(short, long)]
         pin: Option<String>,
 
-        /// Dove scrivere la chiave certificata (default: <chiave>-certificata.asc)
+        /// Dove scrivere la chiave certificata (default: <chiave>-certificata.asc,
+        /// stdout se la chiave arriva da stdin). `-` per stdout.
         #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
+
+        /// Dove scrivere cie-certifier.asc e .cer (default: accanto all'output)
+        #[arg(long, value_name = "DIR", value_hint = ValueHint::DirPath)]
+        outdir: Option<String>,
 
         /// Non chiedere conferma se il nome della User ID non corrisponde alla CIE
         #[arg(long)]
@@ -191,8 +196,8 @@ fn main() -> Result<()> {
             commands::sign_pdf::execute(file, pin, output, indice, motivo, certifica)
         }
         Commands::Gpg { azione } => match azione {
-            GpgCommands::Certify { chiave, uid, pin, output, yes } => {
-                commands::gpg::certify_key(chiave, uid, pin, output, yes)
+            GpgCommands::Certify { chiave, uid, pin, output, outdir, yes } => {
+                commands::gpg::certify_key(chiave, uid, pin, output, outdir, yes)
             }
             GpgCommands::Verify { chiave, certifier } => {
                 commands::gpg::verify_key(chiave, certifier)

@@ -6,7 +6,8 @@
 
 use anyhow::{Context, Result};
 use cie_firma::{sign_detached, sign_p7m, sign_pdf, PadesOptions, Step};
-use cie_lib::PcscContext;
+use cie_lib::{CardStatus, PcscContext, ReaderWatch};
+use iced::futures::{channel::mpsc, Stream};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -45,6 +46,38 @@ pub enum Message {
     },
     /// The error chain, already formatted.
     Failed(String),
+}
+
+/// How long before trying PC/SC again after it went away: no pcscd running,
+/// or the service restarting under us.
+const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// What the reader is doing, as a stream the event loop waits on.
+///
+/// PC/SC is blocking and has no async side: `SCardGetStatusChange` parks the
+/// calling thread, and tokio would only park the same thread under a different
+/// name. So the OS thread stays, and pushes into the channel the runtime is
+/// already polling — which is what removes the timer, not an async runtime.
+pub fn watch() -> impl Stream<Item = CardStatus> {
+    let (tx, rx) = mpsc::unbounded();
+    std::thread::spawn(move || {
+        loop {
+            if let Ok(mut watch) = ReaderWatch::new() {
+                while let Ok(status) = watch.wait() {
+                    if tx.unbounded_send(status).is_err() {
+                        return; // window closed
+                    }
+                }
+            }
+            // No pcscd, or it just went away: there is no reader to speak of
+            // until it comes back.
+            if tx.unbounded_send(CardStatus::NoReader).is_err() {
+                return;
+            }
+            std::thread::sleep(RETRY);
+        }
+    });
+    rx
 }
 
 /// Asks the reader which card is on it, off the window thread.

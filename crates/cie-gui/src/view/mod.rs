@@ -34,20 +34,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
 /// The bar carries the name and who the card says you are. It is not a client
 /// side decoration: on a tiling compositor the frame is not ours to draw.
 fn app_bar(state: &State) -> Element<'_, Message> {
-    let card = match (&state.card.id, &state.card.stored) {
-        (Some(id), Some(stored)) => match stored.holder() {
-            Some(who) => text(format!("● {who} · {id}")),
-            None => text(format!("● {id}")),
-        },
-        (Some(id), None) => text(format!("● {id}")),
-        (None, _) => text("○").style(iced::widget::text::secondary),
-    };
-
     container(
         row![
             text(t!("app.title")).size(17).font(theme::UI_STRONG),
             space::horizontal(),
-            card.size(13),
+            reader(state),
             button(text(state.mode.label().into_owned()).size(12))
                 .style(theme::quiet)
                 .on_press(Message::ThemeChanged(state.mode.next())),
@@ -59,6 +50,36 @@ fn app_bar(state: &State) -> Element<'_, Message> {
     .style(theme::bar)
     .width(Fill)
     .into()
+}
+
+/// The reader, in words. The lamp on its own was a riddle: green or grey says
+/// something is wrong without ever saying what.
+fn reader(state: &State) -> Element<'_, Message> {
+    use cie_lib::CardStatus::*;
+    use iced::widget::text::{danger, secondary, success, Style};
+
+    let card = &state.card;
+    let lamp: fn(&iced::Theme) -> Style = match card.status {
+        NoReader => danger,
+        NoCard => secondary,
+        Present => success,
+    };
+
+    let label = match (card.status, &card.id) {
+        (NoReader, _) => t!("card.no_reader").into_owned(),
+        (NoCard, _) => t!("card.no_card").into_owned(),
+        (Present, None) if card.asked => t!("card.unreadable").into_owned(),
+        (Present, None) => t!("card.reading").into_owned(),
+        (Present, Some(id)) => match card.stored.as_ref().and_then(|s| s.holder()) {
+            Some(who) => format!("{who} · {id}"),
+            None => id.clone(),
+        },
+    };
+
+    row![text("●").size(13).style(lamp), text(label).size(13)]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 /// The desk: the page, or the reason there is not one.
