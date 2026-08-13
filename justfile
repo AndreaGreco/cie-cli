@@ -57,7 +57,7 @@ dist-generate:
 # === cargo-packager (GUI: .dmg / .exe / .deb / .AppImage) ===
 
 # Package the GUI for the current platform.
-# Formats: linux -> deb,appimage | macos -> app,dmg | windows -> nsis
+# Formats: linux -> deb,appimage | macos -> app,dmg | windows -> nsis,wix
 #
 # NO_STRIP: lo strip che linuxdeploy si porta dietro e' vecchio e si rifiuta di
 # toccare una libpcsclite con la sezione .relr.dyn. Senza, l'AppImage non esce.

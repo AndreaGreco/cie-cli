@@ -189,8 +189,8 @@ info "This will:"
 echo "  1. Push commit to origin/${CURRENT_BRANCH}"
 echo "  2. Push tag ${TAG}"
 echo "  3. Trigger GitHub Actions:"
-echo "     - Release (dist): archives, shell/powershell installers, .pkg, .msi"
-echo "     - Bundle GUI (cargo-packager): .dmg, NSIS .exe, .deb, .AppImage"
+echo "     - Release (dist): archives, shell/powershell installers, .pkg"
+echo "     - Bundle GUI (cargo-packager): .msi, NSIS .exe, .dmg, .deb, .AppImage"
 echo
 read -p "$(echo -e ${GREEN}Push to remote?${NC} [Y/n] )" -n 1 -r
 echo

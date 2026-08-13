@@ -23,7 +23,14 @@ category = "Utility"
 publisher = "Attilio Greco"
 homepage = "https://github.com/AttilioGreco/cie-cli"
 license-file = "../../LICENSE"
-before-packaging-command = "cargo build --release --bin cie-gui"
+before-packaging-command = "cargo build --release -p cie-gui -p cie-cli --bin cie-gui --bin cie"
+# Un solo download da' tutto: chi vuole la GUI la trova, chi poi scopre la riga
+# di comando ha gia' `cie` accanto. Senza questa lista cargo-packager prende
+# solo i bin del pacchetto cie-gui.
+binaries = [
+	{ path = "cie-gui", main = true },
+	{ path = "cie", main = false },
+]
 icons = [
 	"icons/32x32.png",
 	"icons/128x128.png",
@@ -45,6 +52,12 @@ libs = ["libpcsclite.so.1"]
 
 [package.metadata.packager.nsis]
 installer-mode = "currentUser"
+
+# L'MSI e' perMachine e chiede l'amministratore, ma piazza da solo l'icona sul
+# desktop e mette `cie` nel PATH di sistema. L'NSIS resta per chi
+# l'amministratore non ce l'ha.
+[package.metadata.packager.wix]
+languages = ["it-IT"]
 
 [dependencies]
 cie-firma.workspace = true

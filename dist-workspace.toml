@@ -8,7 +8,10 @@ cargo-dist-version = "0.30.3"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "powershell", "msi", "pkg"]
+# Niente 'msi' qui: l'MSI di Windows lo fa cargo-packager sul pacchetto della
+# GUI, e si porta dentro anche `cie`. Due MSI sulla stessa release, uno con la
+# finestra e uno senza, sono solo un modo di far scaricare il file sbagliato.
+installers = ["shell", "powershell", "pkg"]
 # Target platforms to build apps for (Rust target-triple syntax).
 # Niente musl: pcsc si lega a libpcsclite a runtime, un binario statico non
 # troverebbe nessun lettore.

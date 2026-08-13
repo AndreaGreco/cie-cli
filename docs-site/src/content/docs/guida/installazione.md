@@ -12,12 +12,18 @@ comando c'è anche `cie`, piu' in fondo.
 
 ## Windows
 
-1. Dalla [pagina dei
-   download](https://github.com/AttilioGreco/cie-cli/releases/latest) scarica
-   il file che finisce per **`-setup.exe`**.
-2. Aprilo e vai avanti. Non chiede la password di amministratore: si installa
-   solo per il tuo utente.
-3. Trovi **Firma CIE** nel menu Start.
+Ci sono due file, scegline uno.
+
+**`.msi`** — quello normale. Doppio clic, avanti fino in fondo. Chiede la
+password di amministratore. Alla fine trovi l'icona di **Firma CIE** sul
+desktop e nel menu Start.
+
+**`-setup.exe`** — se l'amministratore non ce l'hai. Si installa solo per il tuo
+utente e non chiede nessuna password; il collegamento sul desktop te lo chiede
+con una casella nell'ultima schermata.
+
+Dentro c'è anche `cie`, il programma da riga di comando: con l'`.msi` finisce
+subito nel `PATH`, quindi lo puoi chiamare da un qualsiasi prompt.
 
 :::caution[Windows dirà che il programma non è sicuro]
 Compare una finestra blu, **"Windows ha protetto il PC"**. Succede a tutti i
@@ -86,7 +92,14 @@ carta, vedi [Se qualcosa non va](/cie-cli/guida/problemi/).
 ## La riga di comando
 
 `cie` fa le stesse firme senza finestre, e in piu' legge i dati della carta e
-certifica chiavi OpenPGP. Su Linux e macOS:
+certifica chiavi OpenPGP.
+
+**Se hai gia' installato Firma CIE ce l'hai gia'**: i pacchetti qui sopra
+contengono tutti e due i programmi. Con il `.deb` e con l'`.msi` `cie` e' subito
+nel `PATH`; con il `-setup.exe` e con il `.dmg` sta accanto a `Firma CIE`,
+dentro la cartella dell'applicazione.
+
+Per averlo da solo, senza la finestra, su Linux e macOS:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/AttilioGreco/cie-cli/releases/latest/download/cie-cli-installer.sh | sh
@@ -98,9 +111,9 @@ Su Windows, in PowerShell:
 irm https://github.com/AttilioGreco/cie-cli/releases/latest/download/cie-cli-installer.ps1 | iex
 ```
 
-Sulla stessa pagina ci sono anche il `.msi` per Windows, il `.pkg` per macOS e
-gli archivi `.tar.xz` / `.zip` da scompattare a mano, uno per piattaforma.
-Accanto a ogni file c'è il suo `.sha256`.
+Sulla stessa pagina ci sono anche il `.pkg` per macOS e gli archivi `.tar.xz` /
+`.zip` da scompattare a mano, uno per piattaforma. Accanto a ogni file c'è il
+suo `.sha256`.
 
 Per aggiornare piu' avanti basta `cie-cli-update`.
 

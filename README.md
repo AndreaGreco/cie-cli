@@ -1,10 +1,28 @@
 # CIE-CLI
 
-CLI e libreria Rust per la **Carta d'Identità Elettronica (CIE)** italiana, che
-parlano alla carta **direttamente in PC/SC**.
+**Firma CIE**, la finestra per firmare i PDF con la **Carta d'Identità
+Elettronica** italiana, e `cie`, la stessa cosa da riga di comando. Parlano alla
+carta **direttamente in PC/SC**.
 
 Niente middleware ufficiale, niente PKCS#11 di terze parti, niente app Java di
 registrazione, nessun file di cache scritto dallo strumento.
+
+## Installazione
+
+Tutti i pacchetti stanno nell'ultima
+[release](https://github.com/AttilioGreco/cie-cli/releases/latest). **Un solo
+download**: dentro ci sono sia la finestra sia il comando `cie`.
+
+| Sistema | File | Cosa fa |
+|---|---|---|
+| Windows | `….msi` | chiede l'amministratore, mette l'icona sul desktop |
+| Windows senza amministratore | `…-setup.exe` | installa per il tuo utente, il collegamento sul desktop lo chiede |
+| macOS | `….dmg` | trascini «Firma CIE» in Applicazioni |
+| Debian, Ubuntu | `….deb` | `sudo apt install ./file.deb`, voce nel menu |
+| altre Linux | `….AppImage` | `chmod +x`, si lancia com'è |
+
+Nella stessa release ci sono anche `.pkg`, gli archivi e gli installer
+`curl`/`irm`: quelli sono **solo `cie`**, senza finestra e senza icona.
 
 ## Perché
 
@@ -47,8 +65,8 @@ qualificate ai sensi eIDAS.
 
 ## Requisiti
 
-- Linux con lettore di smart card PC/SC e una CIE 3.0
-- `pcscd` in esecuzione
+Un lettore di smart card PC/SC e una CIE 3.0. Su Windows e macOS lo stack PC/SC
+è già nel sistema; su Linux va acceso `pcscd`:
 
 ```bash
 sudo pacman -S pcsclite ccid        # Arch
@@ -63,11 +81,44 @@ e' ancora a monte. Non devi fare niente — il `Cargo.toml` del workspace punta 
 fork su git e Cargo lo risolve da solo. Per lavorarci sopra in locale, copia
 `.cargo/config.toml.example` in `.cargo/config.toml`.
 
-## Uso
+## Firma CIE
+
+Una schermata sola: il documento al centro, le scelte in colonna a destra, in
+fondo dove finirà il file e il pulsante per firmare. Il riquadro della firma si
+trascina per spostarlo e si prende per gli angoli per ridimensionarlo, al posto
+della posizione cablata di `cie sign-pdf`; dentro il riquadro c'è un facsimile
+di come verrà, alla stessa scala che avrà nel PDF. Il nome del file firmato è
+quello proposto dalla CLI, e si può cambiare con un salva-con-nome.
+
+Comodità:
+
+| | |
+|---|---|
+| frecce, PagSu / PagGiù | cambia pagina |
+| rotella | cambia pagina a 100%, scorre quando sei zoomato |
+| Ctrl `+` `−` `0` | zoom avanti, indietro, torna a 100% |
+| trascinamento di un file | lo apre |
+
+Il tema segue il desktop; l'interruttore in alto a destra forza chiaro o scuro.
+La lingua arriva da `LANG`, con l'italiano come ripiego.
+
+Il PIN si legge, si salva e si cancella dal portachiavi direttamente dalla
+finestra. La voce è la stessa che usa `cie`, perché i due strumenti condividono
+il codice invece di accordarsi su una convenzione.
+
+Su un window manager a piastrelle la finestra la piazza il compositore, non il
+programma: l'unica cosa che `cie-gui` può fare è dire chi è. Su Sway:
+
+```
+for_window [app_id="cie-gui"] floating enable, resize set 1280 880
+```
+
+## Da riga di comando
+
+`cie` è un binario a parte da `cie-gui`: chi lavora in terminale non si porta
+dietro un toolkit grafico. I pacchetti qui sopra li installano entrambi.
 
 ```bash
-cargo build --release
-
 cie info          # dati leggibili senza PIN
 cie pcsc-test     # diagnostica APDU
 cie auth          # canale sicuro + verifica PIN + dati protetti
@@ -150,46 +201,7 @@ Lo script finisce dove bash e fish lo trovano da soli
 per zsh il comando stampa la riga di `fpath` da aggiungere a `~/.zshrc`. Vale
 la pena rilanciarlo dopo un aggiornamento: le opzioni nuove arrivano da lì.
 
-### L'interfaccia grafica
-
-`cie-gui` è un binario separato: chi usa la riga di comando non si porta dietro
-un toolkit grafico.
-
-```bash
-cargo run --release -p cie-gui
-```
-
-Una schermata sola: il documento al centro, le scelte in colonna a destra, in
-fondo dove finirà il file e il pulsante per firmare. Il riquadro della firma si
-trascina per spostarlo e si prende per gli angoli per ridimensionarlo, al posto
-della posizione cablata di `cie sign-pdf`; dentro il riquadro c'è un facsimile
-di come verrà, alla stessa scala che avrà nel PDF. Il nome del file firmato è
-quello proposto dalla CLI, e si può cambiare con un salva-con-nome.
-
-Comodità:
-
-| | |
-|---|---|
-| frecce, PagSu / PagGiù | cambia pagina |
-| rotella | cambia pagina a 100%, scorre quando sei zoomato |
-| Ctrl `+` `−` `0` | zoom avanti, indietro, torna a 100% |
-| trascinamento di un file | lo apre |
-
-Il tema segue il desktop; l'interruttore in alto a destra forza chiaro o scuro.
-La lingua arriva da `LANG`, con l'italiano come ripiego.
-
-Su un window manager a piastrelle la finestra la piazza il compositore, non il
-programma: l'unica cosa che `cie-gui` può fare è dire chi è. Su Sway:
-
-```
-for_window [app_id="cie-gui"] floating enable, resize set 1280 880
-```
-
-Il PIN si legge, si salva e si cancella dal portachiavi direttamente dalla
-finestra. La voce è la stessa che usa `cie`, perché i due strumenti condividono
-il codice invece di accordarsi su una convenzione.
-
-### Il PIN
+## Il PIN
 
 In ordine di precedenza: argomento `--pin`, portachiavi di sistema, prompt a
 video. Il modo consigliato è il portachiavi, così il PIN non finisce né nella

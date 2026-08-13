@@ -35,7 +35,7 @@ jobs:
           - os: macos-13
             formats: app,dmg
           - os: windows-latest
-            formats: nsis
+            formats: nsis,wix
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          files=(target/release/*.dmg target/release/*.deb target/release/*.AppImage target/release/*-setup.exe)
+          files=(target/release/*.dmg target/release/*.deb target/release/*.AppImage target/release/*-setup.exe target/release/*.msi)
           if [ ${#files[@]} -eq 0 ]; then
             echo "Nessun bundle prodotto in target/release" >&2
             ls -la target/release >&2

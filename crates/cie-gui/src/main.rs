@@ -42,6 +42,9 @@ fn main() -> iced::Result {
     let mut window = window::Settings {
         size: Size::new(1280.0, 880.0),
         min_size: Some(Size::new(1000.0, 680.0)),
+        // The bundle gives the icon to the launcher, not to the window: without
+        // this the taskbar shows the generic one.
+        icon: window::icon::from_file_data(include_bytes!("../icons/256x256.png"), None).ok(),
         ..Default::default()
     };
     // The compositor places the window; all we can do is say who we are, and

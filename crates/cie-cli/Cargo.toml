@@ -11,8 +11,10 @@ description = "CLI per la Carta d'Identità Elettronica italiana"
 name = "cie"
 path = "src/main.rs"
 
-# GUID stabili: WiX li usa per riconoscere un aggiornamento invece di una
-# seconda installazione affiancata. Non cambiarli mai.
+# L'MSI della sola CLI non si spedisce piu' (vedi dist-workspace.toml): su
+# Windows c'e' quello della GUI, che porta dentro anche `cie`. I GUID restano
+# qui perche' identificano il prodotto gia' installato da chi aveva la 0.1.4 o
+# precedenti: cambiarli farebbe una seconda installazione affiancata.
 [package.metadata.wix]
 upgrade-guid = "482C7D11-6BCF-4DC5-BAFF-C227F53DAD27"
 path-guid = "8A0E8C2B-44B9-4181-B086-32B12BF610EA"
