@@ -7,6 +7,8 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-08-13
+
 ### Added
 
 - MSI di «Firma CIE» per Windows: installa per tutte le utenze, piazza l'icona
