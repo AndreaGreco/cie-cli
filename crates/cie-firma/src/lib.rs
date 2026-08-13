@@ -2,15 +2,15 @@
 //!
 //! Sits above `cie-lib` (the bare card layer) and below anything with a face:
 //! `cie-cli` and `cie-gui` both sign through here. This layer exists on its own
-//! because `underskrift` drags in lopdf and a font parser — things that have
+//! because `underskrift` drags in lopdf and a font parser - things that have
 //! nothing to do with an APDU, and that the future PKCS#11 module must not
 //! inherit just to expose `C_Sign`.
 //!
 //! Three containers, one signer:
 //!
-//! - [`sign_pdf`] — PAdES B-B, the signature goes inside the PDF
-//! - [`sign_p7m`] — CAdES enveloping, content and signature in a single DER
-//! - [`sign_detached`] — the raw RSA signature, the brick under the other two
+//! - [`sign_pdf`] - PAdES B-B, the signature goes inside the PDF
+//! - [`sign_p7m`] - CAdES enveloping, content and signature in a single DER
+//! - [`sign_detached`] - the raw RSA signature, the brick under the other two
 
 mod cades;
 mod detached;

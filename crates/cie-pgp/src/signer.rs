@@ -55,8 +55,8 @@ impl Signer for CieSequoiaSigner<'_> {
 
     /// La carta sa fare solo SHA-256.
     ///
-    /// Attenzione: `SignatureBuilder` non guarda questo elenco — lo consulta
-    /// solo il firmatario di streaming — e da solo sceglierebbe SHA-512. Chi
+    /// Attenzione: `SignatureBuilder` non guarda questo elenco - lo consulta
+    /// solo il firmatario di streaming - e da solo sceglierebbe SHA-512. Chi
     /// costruisce una firma deve quindi imporre l'algoritmo con
     /// `set_hash_algo`, e il controllo in `sign` è la rete che se ne accorge.
     fn acceptable_hashes(&self) -> &[HashAlgorithm] {

@@ -57,7 +57,7 @@ const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
 /// PC/SC is blocking and has no async side: `SCardGetStatusChange` parks the
 /// calling thread, and tokio would only park the same thread under a different
 /// name. So the OS thread stays, and pushes into the channel the runtime is
-/// already polling — which is what removes the timer, not an async runtime.
+/// already polling - which is what removes the timer, not an async runtime.
 pub fn watch() -> impl Stream<Item = CardStatus> {
     let (tx, rx) = mpsc::unbounded();
     std::thread::spawn(move || {

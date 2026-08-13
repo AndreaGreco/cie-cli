@@ -115,7 +115,7 @@ fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Opti
     match event {
         iced::Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
 
-        // `Captured` means a widget already dealt with it — a scrollbar, most
+        // `Captured` means a widget already dealt with it - a scrollbar, most
         // often. Only untouched scrolls are ours to interpret.
         iced::Event::Mouse(mouse::Event::WheelScrolled { delta })
             if status == event::Status::Ignored =>

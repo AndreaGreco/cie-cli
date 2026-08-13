@@ -1,7 +1,7 @@
 //! The panel that covers the window while the card works.
 //!
 //! One panel, three faces: it asks for the PIN, it shows the card working, and
-//! it reports how it went. Blocking the rest of the window here is the point —
+//! it reports how it went. Blocking the rest of the window here is the point -
 //! this is the one stretch where the card must not be touched.
 
 use iced::widget::{button, checkbox, column, container, row, text, text_input};
@@ -131,7 +131,7 @@ fn running<'a>(step: usize, label: &str) -> Element<'a, Message> {
     body = body.push(list);
 
     // The label the card thread sent, in case it says something the fixed list
-    // cannot — an unexpected step, or a wait longer than it looks.
+    // cannot - an unexpected step, or a wait longer than it looks.
     let _ = label;
 
     body.push(

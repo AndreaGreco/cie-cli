@@ -57,7 +57,7 @@ fn holder_name(holder: &DatiTitolare) -> Option<String> {
 
 /// The lines of the visible stamp.
 ///
-/// `holder` is `None` while nobody knows whose card this is — the preview has
+/// `holder` is `None` while nobody knows whose card this is - the preview has
 /// to draw the stamp before the certificate has been read. In that case the
 /// card-derived lines carry placeholders of realistic width, so what is on
 /// screen has the shape and size of what will end up in the PDF.
@@ -96,7 +96,7 @@ pub fn stamp_lines(
 /// opened.
 ///
 /// Same lines the signature will carry, with today's date. Pass the holder when
-/// something already knows it — a card the keyring has seen before — and the
+/// something already knows it - a card the keyring has seen before - and the
 /// preview stops being a mock-up and becomes the thing itself.
 pub fn preview_stamp_lines(holder: Option<&DatiTitolare>, reason: Option<&str>) -> Vec<TextLine> {
     let when = chrono::Local::now().format("%d/%m/%Y %H:%M:%S").to_string();
@@ -113,8 +113,8 @@ pub fn sign_pdf(pdf: &[u8], signer: &dyn CryptoSigner, options: &PadesOptions) -
 
     let text = TextConfig {
         lines: stamp_lines(
-            // An unparseable certificate still has a holder — we just cannot
-            // read it — so this stays `Some` and the stamp says as much rather
+            // An unparseable certificate still has a holder - we just cannot
+            // read it - so this stays `Some` and the stamp says as much rather
             // than falling back to the preview's placeholders.
             Some(&DatiTitolare::from_certificate_der(signer.certificate_der()).unwrap_or_default()),
             options.reason.as_deref(),

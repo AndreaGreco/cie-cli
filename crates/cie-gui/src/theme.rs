@@ -15,7 +15,7 @@ use iced::{Background, Border, Color, Font, Theme};
 /// Shipped inside the binary rather than looked up on the system: it is not
 /// installed by default anywhere, and a tool that silently falls back to
 /// whatever the desktop has is a tool that looks different on every machine.
-/// SIL Open Font License 1.1 — `fonts/OFL.txt` travels with it.
+/// SIL Open Font License 1.1 - `fonts/OFL.txt` travels with it.
 pub const UI: Font = Font::with_name("Titillium Web");
 
 /// The same face with weight, for titles. egui had no bold at all, which is
@@ -72,7 +72,7 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::from_rgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0)
 }
 
-/// The canvas the document sits on — deliberately not the surface colour, so
+/// The canvas the document sits on - deliberately not the surface colour, so
 /// the page reads as a sheet of paper rather than part of the chrome.
 pub const DESK_LIGHT: Color = rgb(0xF2, 0xF7, 0xFC);
 pub const DESK_DARK: Color = rgb(0x16, 0x22, 0x2E);

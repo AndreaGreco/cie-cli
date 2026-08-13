@@ -20,7 +20,7 @@ const GRIP: f32 = 7.0;
 const SLACK: f32 = 1.6;
 
 /// The program owns everything it needs, so the widget borrows nothing from
-/// the document — it only had to measure it.
+/// the document - it only had to measure it.
 pub fn canvas(
     document: &Document,
     page: usize,
@@ -221,7 +221,7 @@ impl Stamp {
     ///
     /// The lines come from `cie_firma::preview_stamp_lines`, the very function
     /// that composes the real stamp: no second copy of the layout to keep in
-    /// step. The holder's name and tax code are placeholders — they live in a
+    /// step. The holder's name and tax code are placeholders - they live in a
     /// certificate that stays behind the PIN until signing time.
     fn draw_mockup(&self, frame: &mut Frame, boxed: Rectangle, page: Rectangle) {
         // One PDF point is this many pixels on screen. Without it the mock-up

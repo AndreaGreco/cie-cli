@@ -4,8 +4,8 @@
 //! key is the card's ID_Servizi (file `0x1001`): twelve ASCII digits, readable
 //! without the PIN, and the very number printed on the card.
 //!
-//! The `keyring` crate picks the store per platform — secret-service here,
-//! Credential Manager on Windows — so `cie` and `cie-gui` share one
+//! The `keyring` crate picks the store per platform - secret-service here,
+//! Credential Manager on Windows - so `cie` and `cie-gui` share one
 //! implementation instead of agreeing on a convention.
 //!
 //! What goes where matters. On secret-service the *index* (service and user) is

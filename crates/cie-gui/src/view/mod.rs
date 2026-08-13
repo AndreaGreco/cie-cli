@@ -1,4 +1,4 @@
-//! The window: application bar, desk, sidebar, action bar — and the signing
+//! The window: application bar, desk, sidebar, action bar - and the signing
 //! panel laid over the lot.
 
 mod sidebar;

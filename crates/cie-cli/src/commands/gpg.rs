@@ -142,7 +142,7 @@ pub fn verify_key(percorso: String, certificatore: Option<String>) -> Result<()>
 
     let cie = OpenPgpCert::from_file(&percorso_cert)
         .with_context(|| format!("lettura del certificatore {percorso_cert}"))?;
-    println!("Certificatore: {} — {}", cie.fingerprint(), primo_uid(&cie));
+    println!("Certificatore: {} - {}", cie.fingerprint(), primo_uid(&cie));
 
     let mut verificate = 0;
     for uid in chiave.userids() {

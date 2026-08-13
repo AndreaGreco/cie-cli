@@ -8,7 +8,7 @@
 //! left.
 //!
 //! Ignoring rotation and crop box puts the signature in the wrong place with
-//! no visible error — and scanned PDFs often carry both.
+//! no visible error - and scanned PDFs often carry both.
 
 use anyhow::{anyhow, Result};
 use iced::widget::image;
@@ -93,7 +93,7 @@ impl Document {
         );
 
         // hayro hands back premultiplied RGBA, which would need dividing back
-        // out — except `bg_color` above makes every pixel opaque, and at alpha
+        // out - except `bg_color` above makes every pixel opaque, and at alpha
         // 255 premultiplied and straight are the same bytes. Walking a hundred
         // megabytes to multiply by one is not free at these sizes.
         debug_assert!(

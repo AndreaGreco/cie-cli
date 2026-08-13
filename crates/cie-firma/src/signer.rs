@@ -108,7 +108,7 @@ pub fn open_and_authenticate(
 ///
 /// File `0x1001` (ID_Servizi) is public: no PIN, no secure channel, just select
 /// the applet and read. Twelve ASCII digits, and the same number printed on the
-/// card — so it serves both as the keyring key and as the label to show.
+/// card - so it serves both as the keyring key and as the label to show.
 ///
 /// Must not be called while a signature is in flight: that thread holds the
 /// card, and connecting alongside it would make one of the two fail.

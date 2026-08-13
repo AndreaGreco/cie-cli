@@ -11,10 +11,10 @@
 //!
 //! Due artefatti, due significati diversi:
 //!
-//! - [`certifier_cert`] — la chiave della CIE come certificato OpenPGP
+//! - [`certifier_cert`] - la chiave della CIE come certificato OpenPGP
 //!   autoportante, auto-firmato dalla carta. Senza questo GnuPG non ha con cosa
 //!   verificare la certification, e la mostra come `sig?  [no public key]`.
-//! - [`certify`] — la certification vera e propria, aggiunta alla chiave altrui.
+//! - [`certify`] - la certification vera e propria, aggiunta alla chiave altrui.
 
 mod signer;
 
@@ -47,8 +47,8 @@ const PROFILO: &str = "v1";
 /// La fingerprint è stabile: l'istante di creazione viene dal `notBefore` del
 /// certificato e non dall'ora corrente, quindi rieseguire il comando non crea
 /// una seconda chiave che confonde chi verifica. I byte invece cambiano a ogni
-/// esecuzione — Sequoia mette un salt casuale in ogni firma v4 apposta, per
-/// renderla imprevedibile — e va bene così: le due self-signature si fondono.
+/// esecuzione - Sequoia mette un salt casuale in ogni firma v4 apposta, per
+/// renderla imprevedibile - e va bene così: le due self-signature si fondono.
 ///
 /// Key flags: solo certification. Questa chiave non cifra e non firma
 /// documenti, e dirlo evita che qualcuno ci provi.
@@ -135,7 +135,7 @@ pub fn certify(target: &Cert, uid: &UserID, signer: &mut CieSequoiaSigner<'_>) -
 ///
 /// Confronto per insiemi di parole normalizzate, così l'ordine nome/cognome, le
 /// maiuscole, gli accenti e la punteggiatura non contano. Un `false` non è un
-/// errore — certificare uno pseudonimo è legittimo — ma deve essere una scelta
+/// errore - certificare uno pseudonimo è legittimo - ma deve essere una scelta
 /// deliberata di chi usa il comando, non un caso.
 pub fn holder_matches(dati: &DatiTitolare, uid: &UserID) -> bool {
     let Ok(Some(nome_uid)) = uid.name() else {

@@ -1,7 +1,7 @@
 //! La certificazione OpenPGP esercitata senza CIE.
 //!
 //! `fake::fake_signer` di `cie-firma` implementa lo stesso contratto della carta
-//! — riceve un hash, costruisce il DigestInfo, applica PKCS#1 v1.5 — quindi il
+//! - riceve un hash, costruisce il DigestInfo, applica PKCS#1 v1.5 - quindi il
 //! percorso che questi test attraversano è lo stesso della carta vera, meno il
 //! lettore.
 //!
@@ -232,7 +232,7 @@ fn il_confronto_anagrafico_ignora_ordine_accenti_e_maiuscole() {
 /// GnuPG deve verificare la certification e continuare a usare la chiave.
 ///
 /// La chiave la genera GnuPG, non Sequoia: cosi' il test copre anche il caso che
-/// conta davvero per chi la usa — la chiave con cui si firmano i commit deve
+/// conta davvero per chi la usa - la chiave con cui si firmano i commit deve
 /// restare utilizzabile dopo essere passata di qui.
 ///
 /// Si salta se `gpg` non e' installato: un ambiente senza GnuPG non e' un

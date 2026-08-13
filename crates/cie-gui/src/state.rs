@@ -1,8 +1,8 @@
 //! The window's state and everything that changes it.
 //!
 //! No widget is built here. That is deliberate: `update` stays a plain function
-//! over plain data, so the behaviour that matters — which signature kind a file
-//! lands on, when signing is allowed, what the panel shows after a failure —
+//! over plain data, so the behaviour that matters - which signature kind a file
+//! lands on, when signing is allowed, what the panel shows after a failure -
 //! can be tested without opening a window.
 
 use std::path::PathBuf;
@@ -158,7 +158,7 @@ pub struct State {
     ///
     /// Kept here rather than rebuilt in `view`: hayro takes tens of
     /// milliseconds on a real page, and `view` runs on every frame. The handle
-    /// itself is cheap to clone — it is reference counted.
+    /// itself is cheap to clone - it is reference counted.
     pub page_image: Option<image::Handle>,
 
     // Destination
@@ -341,7 +341,7 @@ impl State {
                     }
                 }
                 // A file that is not a PDF, or a PDF hayro cannot open, is
-                // still signable — just not as PAdES.
+                // still signable - just not as PAdES.
                 if self.document.is_none() && self.kind == Kind::Pades {
                     self.kind = Kind::P7m;
                 }
@@ -505,7 +505,7 @@ impl State {
     }
 
     /// The reader changed. Anything read off the old card stops being true the
-    /// moment it leaves — including the PIN the keyring handed over for it.
+    /// moment it leaves - including the PIN the keyring handed over for it.
     fn set_status(&mut self, status: CardStatus) {
         if status == self.card.status {
             return;
@@ -534,7 +534,7 @@ impl State {
     /// A signature just succeeded, so the certificate has been read: this is
     /// the one moment the holder's name can be learnt.
     ///
-    /// Only worth writing when the keyring already holds this card — there is
+    /// Only worth writing when the keyring already holds this card - there is
     /// no PIN to file it under otherwise, and a name on its own would be
     /// personal data stored for nothing.
     fn learn(&mut self, holder: Option<cie_lib::DatiTitolare>) {
@@ -732,7 +732,7 @@ mod tests {
         assert_eq!(state.zoom, 8.0, "must stop at the last stop");
     }
 
-    /// While the panel is up, the document underneath must hold still — a
+    /// While the panel is up, the document underneath must hold still - a
     /// stray arrow key must not move the box that is about to be signed.
     #[test]
     fn the_panel_swallows_navigation() {

@@ -36,8 +36,8 @@ Qui il PIN si digita per intero. L'obiezione non è che quella cache stia su
 disco: è che tiene **metà** credenziale sotto una protezione che non protegge, e
 così dimezza lo spazio di ricerca di un PIN che ha un contatore di tentativi.
 
-Se lo vuoi comodo, il PIN va **tutto** nel gestore di password del sistema —
-secret-service, Credential Manager, Keychain — che è il posto costruito apposta
+Se lo vuoi comodo, il PIN va **tutto** nel gestore di password del sistema -
+secret-service, Credential Manager, Keychain - che è il posto costruito apposta
 per custodire un segreto a riposo. `cie` non tiene un formato suo. Ed è
 facoltativo: la domanda ha il no come default, e chi risponde Invio non lascia
 niente sulla macchina.
@@ -77,7 +77,7 @@ sudo systemctl enable --now pcscd
 Il middleware CIE **non** serve.
 
 PAdES e CAdES arrivano da `underskrift`, e per ora serve un fork: il lavoro non
-e' ancora a monte. Non devi fare niente — il `Cargo.toml` del workspace punta al
+e' ancora a monte. Non devi fare niente - il `Cargo.toml` del workspace punta al
 fork su git e Cargo lo risolve da solo. Per lavorarci sopra in locale, copia
 `.cargo/config.toml.example` in `.cargo/config.toml`.
 
@@ -148,7 +148,7 @@ aggiunge una riga. Il risultato si controlla con `pdfsig file-firmato.pdf`.
 
 `--certifica` produce una firma di certificazione (firma d'autore, quella che i
 lettori marcano con il nastrino): `1` vieta ogni modifica successiva, `2` lascia
-compilare i moduli e firmare — il default, quindi altri possono controfirmare —
+compilare i moduli e firmare - il default, quindi altri possono controfirmare -
 e `3` permette anche le annotazioni. Ammessa solo sulla prima firma di un
 documento.
 
@@ -167,8 +167,8 @@ Escono tre file:
 | `cie-certifier.asc` | la chiave della CIE come certificato OpenPGP | pubblicabile |
 | `cie-certifier.cer` | il certificato X.509 della carta | **resta a te** |
 
-Il `.cer` contiene il codice fiscale in chiaro — ce lo mette il Ministero, non
-noi — e serve solo a chi deve risalire dalla chiave alla PKI. Lo consegni tu, a
+Il `.cer` contiene il codice fiscale in chiaro - ce lo mette il Ministero, non
+noi - e serve solo a chi deve risalire dalla chiave alla PKI. Lo consegni tu, a
 chi decidi. Nel materiale pubblico il codice fiscale non compare: la User ID del
 certificatore porta nome, cognome e numero della carta, e la firma porta solo lo
 SHA-256 del `.cer`, che e' un impegno vincolante su quale certificato sia.
@@ -184,8 +184,8 @@ compresa, e la CIE dell'email non sa niente. Cosa sia stato verificato davvero
 lo dice la notation `cie-verified@cie-cli`, che contiene `holder-name` e basta.
 
 La chiave certificata resta una normale chiave OpenPGP: continua a firmare i
-commit come prima. La certification viaggia solo se la esporti — `gpg
---export-options export-minimal` la toglie — quindi puoi tenerla per chi ti
+commit come prima. La certification viaggia solo se la esporti - `gpg
+--export-options export-minimal` la toglie - quindi puoi tenerla per chi ti
 chiede di dimostrare l'identita' senza pubblicarla.
 
 ### Completamento automatico
@@ -209,12 +209,12 @@ history della shell né in `ps`.
 
 Il portachiavi tiene **una voce per carta**, così più di una CIE può convivere
 nello stesso profilo. La chiave è l'identificativo del chip (file `0x1001`,
-dodici cifre — lo stesso numero stampato sulla carta), che si legge senza PIN:
+dodici cifre - lo stesso numero stampato sulla carta), che si legge senza PIN:
 basta appoggiare la tessera perché lo strumento sappia di quale PIN ha bisogno.
 
 Per popolarlo basta firmare o autenticarsi una volta digitando il PIN: a
 verifica riuscita `cie` chiede se ricordarlo. Insieme al PIN salva nome,
-cognome e codice fiscale letti dal certificato — è cache, serve a riconoscere
+cognome e codice fiscale letti dal certificato - è cache, serve a riconoscere
 la carta appena appoggiata, quando il certificato è ancora chiuso dietro il PIN.
 
 Nel portachiavi il PIN finisce **per intero**, e a custodirlo è il deposito
@@ -308,11 +308,11 @@ sorgente sta in `docs-site/`.
 
 ## Riferimenti
 
-- [cie-middleware-linux](https://github.com/italia/cie-middleware-linux) —
+- [cie-middleware-linux](https://github.com/italia/cie-middleware-linux) -
   middleware ufficiale, BSD-3-Clause. Le sequenze APDU, i parametri di
   protocollo e le costanti della coppia di chiavi DAPP derivano dal suo
   sorgente, in particolare `cie-pkcs11/CSP/IAS.cpp`.
-- [ICAO Doc 9303](https://www.icao.int/publications/pages/publication.aspx?docnum=9303) —
+- [ICAO Doc 9303](https://www.icao.int/publications/pages/publication.aspx?docnum=9303) -
   Machine Readable Travel Documents, per il Secure Messaging
 - [Specifiche CIE 3.0](https://www.cartaidentita.interno.gov.it/)
 
