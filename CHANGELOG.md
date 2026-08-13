@@ -7,6 +7,15 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Il workflow che costruisce i pacchetti della GUI non e' mai partito, in
+  nessuna release: scattava su `release: published`, ma la release la crea dist
+  con il `GITHUB_TOKEN` e Actions non fa partire workflow dagli eventi di quel
+  token. Ora parte sul tag, in parallelo a dist, e aspetta che la release
+  compaia prima di caricare. Fino alla 0.1.5 compresa sulle release c'era solo
+  la CLI.
+
 ## [0.1.5] - 2026-08-13
 
 ### Added

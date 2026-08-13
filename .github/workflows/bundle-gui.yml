@@ -1,14 +1,19 @@
 # I bundle della GUI, che 'dist' non sa fare: .app dentro un .dmg su macOS,
 # installer NSIS su Windows, .deb e .AppImage su Linux.
 #
-# Parte a release pubblicata, non sul tag: cosi' la release l'ha gia' creata il
-# workflow di dist e qui restano solo gli upload. A mano si puo' lanciare con
-# workflow_dispatch passando il tag.
+# Parte sul tag, come il workflow di dist. NON su `release: published`: la
+# release la crea dist con il GITHUB_TOKEN, e Actions per non ricorrere su se
+# stesso non fa scattare nessun workflow dagli eventi generati da quel token.
+# Con quel trigger questo file non e' mai partito, in nessuna release.
+#
+# Dist e questo girano quindi in parallelo e la release puo' non esistere
+# ancora quando i bundle sono pronti: l'upload aspetta che compaia.
 name: Bundle GUI
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - '**[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
     inputs:
       tag:
@@ -40,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          ref: ${{ inputs.tag || github.ref_name }}
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
@@ -71,7 +76,7 @@ jobs:
       - name: Upload dei bundle sulla release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         shell: bash
         run: |
           shopt -s nullglob
@@ -82,4 +87,17 @@ jobs:
             exit 1
           fi
           printf 'Carico: %s\n' "${files[@]}"
+
+          # La release la crea dist, che gira in parallelo a questo workflow.
+          # Mezz'ora e' molto piu' di quanto ci mette a costruire cinque target.
+          for _ in $(seq 1 60); do
+            gh release view "$TAG" > /dev/null 2>&1 && break
+            echo "La release $TAG non c'e' ancora, riprovo fra 30s"
+            sleep 30
+          done
+          gh release view "$TAG" > /dev/null || {
+            echo "La release $TAG non e' mai comparsa: guarda il workflow Release" >&2
+            exit 1
+          }
+
           gh release upload "$TAG" "${files[@]}" --clobber
