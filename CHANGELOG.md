@@ -9,6 +9,15 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ### Fixed
 
+- Il sito della documentazione era senza CSS: si e' spostato sul dominio
+  `cie-cli.crazylinux.it`, che le Pages servono dalla radice, ma restava
+  costruito con `base: '/cie-cli'` e cercava fogli di stile e link interni
+  sotto un prefisso che li' non esiste.
+
+## [0.1.6] - 2026-08-13
+
+### Fixed
+
 - Il workflow che costruisce i pacchetti della GUI non e' mai partito, in
   nessuna release: scattava su `release: published`, ma la release la crea dist
   con il `GITHUB_TOKEN` e Actions non fa partire workflow dagli eventi di quel
