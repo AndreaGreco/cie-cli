@@ -71,9 +71,9 @@ firmare.
 
 # Come proseguire ?
 
-- [Installare](/cie-cli/guida/installazione/) - Windows, macOS, Linux
-- [Firmare un documento](/cie-cli/guida/firmare/) - la procedura, passo per passo
-- [Se qualcosa non va](/cie-cli/guida/problemi/)
+- [Installare](/guida/installazione/) - Windows, macOS, Linux
+- [Firmare un documento](/guida/firmare/) - la procedura, passo per passo
+- [Se qualcosa non va](/guida/problemi/)
 
 C'è anche un programma da **riga di comando**, `cie`, che fa le stesse cose
-senza finestre aggiuntive: vedi [Primi passi](/cie-cli/riferimento/primi-passi/).
+senza finestre aggiuntive: vedi [Primi passi](/riferimento/primi-passi/).

@@ -6,7 +6,7 @@ ha prodotto.
 
 Accanto a questo file c'è `underskrift-0.1.4.diff`: sono le stesse modifiche già
 scritte e verificate, applicate però al **crate pubblicato 0.1.4**. Serve come
-riferimento di ciò che deve risultare, non come patch da applicare alla cieca —
+riferimento di ciò che deve risultare, non come patch da applicare alla cieca -
 il git di upstream è più avanti del pacchetto su crates.io e i contesti possono
 non combaciare. **Riscrivi le modifiche sul codice che trovi**, poi confronta.
 
@@ -38,7 +38,7 @@ cargo clippy --all-targets
 ```
 
 **Entrambe le combinazioni**, sempre. La patch 1 riguarda proprio le feature, e
-un errore lì non si vede compilando in un modo solo — è successo davvero,
+un errore lì non si vede compilando in un modo solo - è successo davvero,
 vedi sotto.
 
 Trappola nota: nel crate **pubblicato** 25 test falliscono con
@@ -46,11 +46,11 @@ Trappola nota: nel crate **pubblicato** 25 test falliscono con
 pacchetto. **Nel repo git dovrebbero passare.** Se falliscono anche lì, fermati
 e segnalalo: significa che il problema è un altro e non è tuo. In ogni caso
 prendi il conteggio dei fallimenti *prima* di toccare qualsiasi cosa e usalo
-come riferimento — l'unico numero che conta è che non aumenti.
+come riferimento - l'unico numero che conta è che non aumenti.
 
 ---
 
-## Patch 1 — `tsp-ltv` entra sempre, anche a feature spente
+## Patch 1 - `tsp-ltv` entra sempre, anche a feature spente
 
 ### Il problema
 
@@ -63,8 +63,8 @@ version = "0.2"
 
 `tsp-ltv` ha `default = ["tsp", "ltv", "blocking"]` e la sua feature `tsp` tira
 `reqwest`. Risultato: chi compila `underskrift` con
-`default-features = false, features = ["visual"]` — cioè chi non vuole né TSA né
-LTV — si ritrova comunque **reqwest, rustls, hyper e tokio** nel binario, e non
+`default-features = false, features = ["visual"]` - cioè chi non vuole né TSA né
+LTV - si ritrova comunque **reqwest, rustls, hyper e tokio** nel binario, e non
 ha alcun modo di levarli.
 
 Misurato su un progetto reale: **311 crate contro 200**.
@@ -98,8 +98,8 @@ Prima di dichiarare fatta questa patch, verifica che **ogni** re-export da
 |---|---|---|
 | `src/lib.rs` | `tsp_ltv::tsp` | `tsp-ltv/tsp` |
 | `src/ltv/mod.rs` | `tsp_ltv::ltv` | `tsp-ltv/ltv` |
-| `src/crypto/mod.rs` | `tsp_ltv::crypto::{algorithm, verify}` | nessuna, sempre disponibile — **conferma** |
-| `src/lib.rs` | `tsp_ltv::{der_utils, trust}` | nessuna, sempre disponibile — **conferma** |
+| `src/crypto/mod.rs` | `tsp_ltv::crypto::{algorithm, verify}` | nessuna, sempre disponibile - **conferma** |
+| `src/lib.rs` | `tsp_ltv::{der_utils, trust}` | nessuna, sempre disponibile - **conferma** |
 
 Non fidarti di questa tabella: rifai il `grep` sul codice che hai davanti.
 
@@ -113,13 +113,13 @@ cargo test --lib     # con le feature di default: deve compilare
 
 ---
 
-## Patch 2 — `/M` non viene mai scritto, i lettori mostrano il 1970
+## Patch 2 - `/M` non viene mai scritto, i lettori mostrano il 1970
 
 ### Il problema
 
 `SigningOptions` ha `cms_signing_time`, ma nel profilo PAdES l'attributo CMS
 `signingTime` è vietato (ETSI EN 319 142-1) e infatti il builder giustamente lo
-omette. La data dovrebbe quindi finire in `/M` nel dizionario di firma — e lì
+omette. La data dovrebbe quindi finire in `/M` nel dizionario di firma - e lì
 non ci arriva mai. `build_sig_dict` non lo scrive, e il resto del percorso
 nemmeno.
 
@@ -135,7 +135,7 @@ In `src/signer.rs`, accanto a dove vengono aggiunti `Reason`, `Location` e
 `ContactInfo` al dizionario di firma:
 
 ```rust
-// /M — signing time. PAdES forbids the CMS signingTime attribute
+// /M - signing time. PAdES forbids the CMS signingTime attribute
 // (ETSI EN 319 142-1), so the date lives here or nowhere. Without it
 // every reader shows the epoch.
 if let Some(t) = &self.options.cms_signing_time {
@@ -152,7 +152,7 @@ Poppler lo accetta. Due alternative, da proporre nella PR senza deciderle da
 solo:
 
 - aggiungere `Z00'00` e documentare che il valore è inteso UTC;
-- cambiare il tipo in `DateTime<FixedOffset>` — più corretto ma **rompe l'API**.
+- cambiare il tipo in `DateTime<FixedOffset>` - più corretto ma **rompe l'API**.
 
 Se non c'è risposta, lascia com'è: è il cambiamento più piccolo e non peggiora
 niente rispetto a oggi.
@@ -165,7 +165,7 @@ la presenza di `/M` nell'output.
 
 ---
 
-## Patch 3 — `certify` è dichiarato ma non fa niente
+## Patch 3 - `certify` è dichiarato ma non fa niente
 
 ### Il problema
 
@@ -219,7 +219,7 @@ come manomesso.
   **dopo**, perché le serve l'`ObjectId` del dizionario.
 - `src/lib.rs`: esporta `DocMdpPermissions` fra i re-export pubblici.
 
-Il catalogo è già modificabile in questo punto del flusso — `src/core/acroform.rs`
+Il catalogo è già modificabile in questo punto del flusso - `src/core/acroform.rs`
 ci scrive `/AcroForm` e l'update incrementale lo riscrive: prendi quel codice a
 modello per recuperare l'ID del catalogo dal trailer.
 
@@ -245,7 +245,7 @@ nessuno dei due.
 
 ---
 
-## Proposta 4 — CAdES (`.p7m`): apri una discussione, non una PR
+## Proposta 4 - CAdES (`.p7m`): apri una discussione, non una PR
 
 Questa non è una correzione: è un ampliamento dello scopo del progetto, e la
 decisione non è tua né mia.
@@ -262,7 +262,7 @@ Materiale per argomentarla, se il manutentore è interessato:
   `messageDigest`, `signingCertificateV2` con `IssuerSerial`, più
   `CMSAlgorithmProtection`. È la stessa struttura, verificata contro il
   middleware CIE ufficiale.
-- **Manca poco.** `PdfCmsBuilder` produce CMS *detached* — `econtent: None`,
+- **Manca poco.** `PdfCmsBuilder` produce CMS *detached* - `econtent: None`,
   e riceve un hash già calcolato invece dei dati. Un `.p7m` vuole l'opposto:
   `econtent: Some(dati)` e il digest calcolato internamente. In pratica una
   variante del builder più un modo di serializzare il risultato.

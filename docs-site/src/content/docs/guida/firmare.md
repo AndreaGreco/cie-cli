@@ -68,7 +68,7 @@ accetta di piu'.
 
 La casella **Ricordalo nel portachiavi** lo fa salvare nel gestore di password
 del tuo computer, cosi' la volta dopo non lo ridigiti. Puoi lasciarla vuota e
-digitarlo ogni volta - vedi [Il PIN](/cie-cli/guida/pin/).
+digitarlo ogni volta - vedi [Il PIN](/guida/pin/).
 
 Poi parte la firma vera e propria, e ci mette qualche secondo:
 
@@ -95,7 +95,7 @@ Il file firmato sta accanto all'originale, con `-firmato` aggiunto al nome
 Nella stessa schermata può comparire un avviso: il certificato della CIE è di
 autenticazione e non di firma qualificata, quindi certi programmi di verifica
 lo segnalano. Non è un errore ed è spiegato in [Cos'è e cosa puoi
-farci](/cie-cli/guida/cosa-fa/).
+farci](/guida/cosa-fa/).
 
 ## Controllare una firma
 
@@ -115,4 +115,4 @@ gli stessi file: cambia l'involucro, non la firma. L'unica differenza è il
 riquadro, che da riga di comando finisce sempre in basso a destra invece che
 dove lo trascini tu.
 
-Tutte le opzioni stanno in [Tutti i comandi](/cie-cli/riferimento/comandi/).
+Tutte le opzioni stanno in [Tutti i comandi](/riferimento/comandi/).

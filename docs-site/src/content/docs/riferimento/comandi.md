@@ -4,7 +4,7 @@ description: Riferimento completo del binario cie - opzioni, default e file prod
 ---
 
 Tutte le opzioni di `cie`, comando per comando. Se stai cercando come si firma
-un documento, parti da [Primi passi](/cie-cli/riferimento/primi-passi/).
+un documento, parti da [Primi passi](/riferimento/primi-passi/).
 
 ```
 cie [-v...] <comando>
@@ -15,7 +15,7 @@ tutto. è la prima cosa da provare quando qualcosa non torna.
 
 L'opzione `--pin` esiste su tutti i comandi che toccano la carta. Senza, il PIN
 viene dal portachiavi di sistema o da un prompt che non mostra a schermo - vedi
-[Il PIN](/cie-cli/guida/pin/).
+[Il PIN](/guida/pin/).
 
 :::danger
 `--pin` lascia il PIN nella cronologia della shell e visibile in `ps`. Esiste per
@@ -129,5 +129,5 @@ verificate.
 
 Il binario di **Firma CIE**: stesse firme, con il documento davanti e il
 riquadro da posizionare a mano. Si installa a parte, vedi
-[Installare](/cie-cli/guida/installazione/) e [Firmare un
-documento](/cie-cli/guida/firmare/).
+[Installare](/guida/installazione/) e [Firmare un
+documento](/guida/firmare/).

@@ -14,11 +14,11 @@ comando c'è anche `cie`, piu' in fondo.
 
 Ci sono due file, scegline uno.
 
-**`.msi`** — quello normale. Doppio clic, avanti fino in fondo. Chiede la
+**`.msi`** - quello normale. Doppio clic, avanti fino in fondo. Chiede la
 password di amministratore. Alla fine trovi l'icona di **Firma CIE** sul
 desktop e nel menu Start.
 
-**`-setup.exe`** — se l'amministratore non ce l'hai. Si installa solo per il tuo
+**`-setup.exe`** - se l'amministratore non ce l'hai. Si installa solo per il tuo
 utente e non chiede nessuna password; il collegamento sul desktop te lo chiede
 con una casella nell'ultima schermata.
 
@@ -87,7 +87,7 @@ deve esserci comunque.
 Collega il lettore, appoggia la CIE con il chip verso il basso e aspetta un
 paio di secondi. Poi apri Firma CIE: se scegli un documento e clicchi
 **Firma**, il programma ti chiede il PIN. Se invece dice che non trova la
-carta, vedi [Se qualcosa non va](/cie-cli/guida/problemi/).
+carta, vedi [Se qualcosa non va](/guida/problemi/).
 
 ## La riga di comando
 
@@ -117,7 +117,7 @@ suo `.sha256`.
 
 Per aggiornare piu' avanti basta `cie-cli-update`.
 
-Da qui in poi: [Primi passi](/cie-cli/riferimento/primi-passi/).
+Da qui in poi: [Primi passi](/riferimento/primi-passi/).
 
 ### Completamento automatico dei comandi
 

@@ -6,7 +6,7 @@ description: Formato esatto degli artefatti prodotti da cie gpg certify, e proce
 Questa pagina descrive cosa `cie gpg certify` produce e come verificarlo, con
 abbastanza dettaglio da scrivere un verificatore indipendente. Profilo `v1`.
 
-Per l'uso quotidiano basta la [guida](/cie-cli/riferimento/openpgp/).
+Per l'uso quotidiano basta la [guida](/riferimento/openpgp/).
 
 ## Modello di fiducia
 

@@ -60,7 +60,7 @@ Chiudi anche il browser se lo stavi usando per entrare con la CIE su un sito.
 ## "PIN errato. Tentativi rimasti: 2"
 
 Sono le otto cifre: le prime quattro dalla ricevuta del Comune, le altre
-quattro dalla busta arrivata con la carta. Vedi [Il PIN](/cie-cli/guida/pin/).
+quattro dalla busta arrivata con la carta. Vedi [Il PIN](/guida/pin/).
 
 **Fermati dopo il secondo errore.** Al terzo la carta si blocca. Meglio cercare
 i fogli con calma che restare senza carta.
@@ -104,14 +104,14 @@ un'immagine) e per quelli esiste solo il `.p7m`. Vai avanti tranquillamente.
 **Windows** mostra "Windows ha protetto il PC": clicca *Ulteriori informazioni*
 → *Esegui comunque*. **macOS** dice "sviluppatore non identificato": clic
 destro sull'icona → *Apri*. Sono spiegati in
-[Installare](/cie-cli/guida/installazione/).
+[Installare](/guida/installazione/).
 
 ## Il documento firmato viene segnalato dal validatore
 
 Se Acrobat o un validatore online mette un avviso sulla firma pur dicendo che
 è valida, è probabilmente il certificato della CIE che risulta di
 autenticazione e non di firma qualificata. è normale ed è spiegato in
-[Cos'è e cosa puoi farci](/cie-cli/guida/cosa-fa/).
+[Cos'è e cosa puoi farci](/guida/cosa-fa/).
 
 ## Guardare cosa succede davvero
 

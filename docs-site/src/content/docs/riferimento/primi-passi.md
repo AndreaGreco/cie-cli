@@ -3,12 +3,12 @@ title: Primi passi
 description: I primi comandi di cie - leggere la carta, verificare il PIN, firmare - e come controllare quello che esce.
 ---
 
-`cie` fa le stesse firme di [Firma CIE](/cie-cli/guida/firmare/) senza finestre,
+`cie` fa le stesse firme di [Firma CIE](/guida/firmare/) senza finestre,
 e in piu' legge i dati della carta, certifica chiavi OpenPGP e si lascia
 infilare in uno script.
 
 Se non lo hai ancora installato, vedi
-[Installare](/cie-cli/guida/installazione/#la-riga-di-comando).
+[Installare](/guida/installazione/#la-riga-di-comando).
 
 ## Guardare la carta senza toccare il PIN
 
@@ -41,7 +41,7 @@ che è quello che contiene i tuoi dati: nome, cognome, codice fiscale. è il
 percorso che ogni firma ripete.
 
 Il PIN viene dal portachiavi se quella carta è stata ricordata, altrimenti te
-lo chiede senza mostrarlo a schermo. Vedi [Il PIN](/cie-cli/guida/pin/).
+lo chiede senza mostrarlo a schermo. Vedi [Il PIN](/guida/pin/).
 
 Per tenerti una copia del certificato:
 
@@ -52,7 +52,7 @@ cie auth --dump-cert certificato.cer
 :::caution[Il certificato contiene il tuo codice fiscale]
 Ce lo mette il Ministero, in chiaro. Il `.cer` serve a chi deve verificare le
 tue firme, ma non è un file da pubblicare alla leggera. Vedi [Cosa diventa
-pubblico](/cie-cli/riferimento/privacy/).
+pubblico](/riferimento/privacy/).
 :::
 
 ## Firmare
@@ -65,9 +65,9 @@ cie sign file.txt              # firma separata -> file.txt.sig + file.txt.cer
 
 Il primo mette anche un riquadro visibile in basso a destra, con nome e data
 presi dal certificato. Da riga di comando la posizione è fissa: per
-trascinarlo dove vuoi serve [Firma CIE](/cie-cli/guida/firmare/).
+trascinarlo dove vuoi serve [Firma CIE](/guida/firmare/).
 
-Opzioni e default stanno in [Tutti i comandi](/cie-cli/riferimento/comandi/).
+Opzioni e default stanno in [Tutti i comandi](/riferimento/comandi/).
 
 ## Controllare quello che è uscito
 
@@ -110,7 +110,7 @@ validità della firma nel tempo dipende da quella del certificato della carta.
 
 ## E poi
 
-- [Tutti i comandi](/cie-cli/riferimento/comandi/)
-- [Certificare una chiave OpenPGP](/cie-cli/riferimento/openpgp/)
-- [Cosa diventa pubblico](/cie-cli/riferimento/privacy/)
-- [Se qualcosa non va](/cie-cli/guida/problemi/)
+- [Tutti i comandi](/riferimento/comandi/)
+- [Certificare una chiave OpenPGP](/riferimento/openpgp/)
+- [Cosa diventa pubblico](/riferimento/privacy/)
+- [Se qualcosa non va](/guida/problemi/)

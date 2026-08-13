@@ -85,13 +85,13 @@ Nome, cognome e codice fiscale ricordati insieme al PIN stanno **dentro** il
 segreto cifrato, mai negli attributi di ricerca. Su secret-service gli attributi
 sono metadati in chiaro, leggibili da qualunque processo sul bus di sessione.
 
-Vedi [Il PIN](/cie-cli/guida/pin/).
+Vedi [Il PIN](/guida/pin/).
 
 ## Cosa `cie-cli` non fa
 
 - Non scrive nessun file di cache suo, e in particolare nessun pezzo di PIN. Il
   solo segreto che può essere persistito è il PIN intero, se scegli di
-  affidarlo al gestore di password del sistema - vedi [Il PIN](/cie-cli/guida/pin/).
+  affidarlo al gestore di password del sistema - vedi [Il PIN](/guida/pin/).
 - Non parla con la rete durante la firma: senza la feature di marca temporale nel
   build non c'è nemmeno un client HTTP.
 - Non manda niente a nessun servizio, di nessun tipo.

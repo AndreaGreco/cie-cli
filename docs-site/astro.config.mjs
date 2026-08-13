@@ -2,11 +2,13 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-// Il sito vive sulle Pages del progetto, quindi sotto /cie-cli/: senza `base`
-// ogni link interno punterebbe alla radice del dominio utente.
+// Il sito sta su un dominio suo, servito dalla radice: niente `base`. Con
+// `base: '/cie-cli'`, che serviva quando l'indirizzo era
+// attiliogreco.github.io/cie-cli/, il CSS veniva cercato in /cie-cli/_astro/ e
+// non lo trovava piu' nessuno. Se il dominio custom sparisce, tornano
+// entrambe le righe *e* il prefisso nei link interni delle pagine.
 export default defineConfig({
-	site: 'https://attiliogreco.github.io',
-	base: '/cie-cli',
+	site: 'https://cie-cli.crazylinux.it',
 	integrations: [
 		starlight({
 			title: 'CIE-CLI',

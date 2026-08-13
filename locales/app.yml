@@ -42,14 +42,14 @@ kind:
     it: Tipo di firma
     en: Signature type
   pades:
-    it: PAdES — la firma dentro il PDF
-    en: PAdES — the signature inside the PDF
+    it: PAdES - la firma dentro il PDF
+    en: PAdES - the signature inside the PDF
   p7m:
-    it: CAdES (.p7m) — documento e firma in un unico file
-    en: CAdES (.p7m) — document and signature in one file
+    it: CAdES (.p7m) - documento e firma in un unico file
+    en: CAdES (.p7m) - document and signature in one file
   detached:
-    it: Firma separata (.sig) — più il certificato
-    en: Detached (.sig) — plus the certificate
+    it: Firma separata (.sig) - più il certificato
+    en: Detached (.sig) - plus the certificate
   pades_needs_pdf:
     it: Il PAdES vale solo per i PDF.
     en: PAdES only applies to PDFs.

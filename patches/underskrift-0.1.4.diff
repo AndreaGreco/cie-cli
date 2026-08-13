@@ -2,7 +2,7 @@
 +++ b/Cargo.toml
 @@ -42,7 +42,10 @@
  repository = "https://github.com/kushaldas/underskrift"
- 
+
  [features]
 -blocking = ["dep:tokio"]
 +blocking = [
@@ -33,17 +33,17 @@
  verify = []
  visual = [
 @@ -240,6 +247,7 @@
- 
+
  [dependencies.tsp-ltv]
  version = "0.2"
 +default-features = false
- 
+
  [dependencies.ttf-parser]
  version = "0.25"
 --- a/src/lib.rs
 +++ b/src/lib.rs
 @@ -68,6 +68,7 @@
- 
+
  // Public re-exports for convenience
  pub use cms::builder::{CmsProfile, SigningTimePlacement};
 +pub use core::doc_mdp::DocMdpPermissions;
@@ -53,7 +53,7 @@
 --- a/src/signer.rs
 +++ b/src/signer.rs
 @@ -11,6 +11,7 @@
- 
+
  use crate::cms::builder::{CmsProfile, PdfCmsBuilder, SigningTimePlacement};
  use crate::core::acroform;
 +use crate::core::doc_mdp::{self, DocMdpPermissions};
@@ -92,8 +92,8 @@
 @@ -242,9 +255,33 @@
              );
          }
- 
-+        // /M — signing time. PAdES forbids the CMS signingTime attribute
+
++        // /M - signing time. PAdES forbids the CMS signingTime attribute
 +        // (ETSI EN 319 142-1), so the date lives here or nowhere. Without it
 +        // every reader shows the epoch.
 +        if let Some(t) = &self.options.cms_signing_time {
@@ -113,7 +113,7 @@
 +
          // Step 4: Add sig dict as a new object
          let sig_dict_id = doc.add_object(Object::Dictionary(sig_dict));
- 
+
 +        // The catalog must point at the certification signature through
 +        // /Perms /DocMDP, otherwise /Reference alone is inert.
 +        if self.options.certify {
@@ -128,7 +128,7 @@
 @@ -3,6 +3,10 @@
  //! Handles `/DocMDP` transform method for certification signatures and
  //! `/FieldMDP` for field-level locking.
- 
+
 +use lopdf::{Dictionary, Document, Object, ObjectId};
 +
 +use crate::error::CoreError;

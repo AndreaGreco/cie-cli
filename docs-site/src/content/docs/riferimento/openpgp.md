@@ -6,7 +6,7 @@ description: Legare la propria chiave OpenPGP al titolare della CIE con una cert
 :::note[Questa pagina serve a poche persone]
 Riguarda chi ha già una **chiave OpenPGP** e la usa per firmare email o
 commit. Se sei arrivato qui per firmare un PDF, ti serve [Firmare un
-documento](/cie-cli/guida/firmare/).
+documento](/guida/firmare/).
 :::
 
 `cie gpg certify` usa la carta per firmare una **certification OpenPGP
@@ -69,7 +69,7 @@ verificabile da nessuno.
 Ce lo mette il Ministero, nel subject del certificato: non è una scelta di
 `cie-cli`. Serve solo a chi deve risalire dalla chiave alla PKI, e glielo
 consegni tu, a chi decidi. Nel materiale pubblicabile il codice fiscale non
-compare mai. Vedi [Cosa diventa pubblico](/cie-cli/riferimento/privacy/).
+compare mai. Vedi [Cosa diventa pubblico](/riferimento/privacy/).
 :::
 
 ## Se qualcosa non torna
@@ -296,5 +296,5 @@ X sia davvero una CIE e non una chiave RSA qualunque.
 sempre consegnare dopo, mentre un codice fiscale finito su un keyserver non si
 toglie piu'.
 
-La [specifica](/cie-cli/progetto/specifica-openpgp/) descrive la procedura
+La [specifica](/progetto/specifica-openpgp/) descrive la procedura
 completa per chi riceve il `.cer` e vuole risalire fino alla PKI.

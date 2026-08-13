@@ -54,7 +54,7 @@ incorporare.
 ## Limiti della certificazione OpenPGP
 
 - **L'email non è attestata dalla CIE.** Vedi la
-  [specifica](/cie-cli/progetto/specifica-openpgp/).
+  [specifica](/progetto/specifica-openpgp/).
 - **Senza il certificato X.509, un terzo non può stabilire che la chiave
   certificatrice sia davvero una CIE.** Scelta deliberata: il `.cer` contiene il
   codice fiscale.
