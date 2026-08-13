@@ -7,6 +7,8 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-13
+
 ### Fixed
 
 - Il sito della documentazione era senza CSS: si e' spostato sul dominio
