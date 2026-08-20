@@ -5,14 +5,14 @@
 //! is the one place that knows about `/Rotate` and the crop box.
 
 use iced::mouse;
-use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
-use iced::{Color, Element, Fill, Pixels, Point, Rectangle, Renderer, Size, Theme};
+use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
+use iced::{Color, Element, Fill, Point, Rectangle, Renderer, Size, Theme};
 
-use cie_lib::DatiTitolare;
+use cie_firma::Drawn;
 
 use crate::preview::{Document, Grab, move_stamp, resize_stamp};
 use crate::state::Message;
-use crate::theme;
+use crate::view::board::{self, Art};
 
 /// Side of the corner grips, in pixels. Also the hit radius, times the slack
 /// below: a grip you cannot hit is not a grip.
@@ -25,15 +25,15 @@ pub fn canvas(
     document: &Document,
     page: usize,
     stamp: [f32; 4],
-    reason: &str,
-    holder: Option<DatiTitolare>,
+    pieces: Vec<Drawn>,
+    art: Option<Art>,
 ) -> Element<'static, Message> {
     canvas::Canvas::new(Stamp {
         ratio: document.aspect_ratio(page),
         page_width_pt: document.display_size(page).0,
         stamp,
-        reason: reason.trim().to_string(),
-        holder,
+        pieces,
+        art,
     })
     .width(Fill)
     .height(Fill)
@@ -44,10 +44,11 @@ struct Stamp {
     ratio: f32,
     page_width_pt: f32,
     stamp: [f32; 4],
-    reason: String,
-    /// Who the keyring says this card belongs to. With it the mock-up stops
-    /// being a mock-up: what is drawn is what will be stamped.
-    holder: Option<DatiTitolare>,
+    /// The active template, already resolved: the words that will be printed,
+    /// not the names of the pieces that produce them.
+    pieces: Vec<Drawn>,
+    /// The scan of a handwritten signature the template carries, if any.
+    art: Option<Art>,
 }
 
 /// What the pointer is holding, and where it was last seen.
@@ -189,7 +190,17 @@ impl canvas::Program<Message> for Stamp {
             );
         }
 
-        self.draw_mockup(&mut frame, boxed, page);
+        // The same painting the editor does, from the same pieces: what was
+        // composed in the editor is what shows up here, and what shows up here
+        // is what goes in the document.
+        board::paint(
+            &mut frame,
+            boxed,
+            &self.pieces,
+            self.art.as_ref(),
+            (self.stamp[2] - self.stamp[0]) * self.page_width_pt,
+        );
+
         vec![frame.into_geometry()]
     }
 
@@ -212,51 +223,6 @@ impl canvas::Program<Message> for Stamp {
             Some(Grab::Corner(_)) => mouse::Interaction::ResizingDiagonallyUp,
             Some(Grab::Body) => mouse::Interaction::Grab,
             None => mouse::Interaction::default(),
-        }
-    }
-}
-
-impl Stamp {
-    /// Draws what the signature will look like, at the size it will have.
-    ///
-    /// The lines come from `cie_firma::preview_stamp_lines`, the very function
-    /// that composes the real stamp: no second copy of the layout to keep in
-    /// step. The holder's name and tax code are placeholders — they live in a
-    /// certificate that stays behind the PIN until signing time.
-    fn draw_mockup(&self, frame: &mut Frame, boxed: Rectangle, page: Rectangle) {
-        // One PDF point is this many pixels on screen. Without it the mock-up
-        // would stop predicting anything as soon as the window is resized.
-        let px_per_pt = page.width / self.page_width_pt.max(1.0);
-
-        let lines = cie_firma::preview_stamp_lines(
-            self.holder.as_ref(),
-            (!self.reason.is_empty()).then_some(self.reason.as_str()),
-        );
-
-        let pad = 3.0 * px_per_pt;
-        let mut y = boxed.y + pad;
-
-        for line in &lines {
-            let size = line.font_size.unwrap_or(7.0) * px_per_pt;
-            // Under about 5 px text is grey mush: better to stop than to fill
-            // the box with noise.
-            if size < 5.0 {
-                break;
-            }
-            let leading = size * 1.25;
-            if y + leading > boxed.y + boxed.height {
-                break;
-            }
-
-            frame.fill_text(Text {
-                content: line.text.clone(),
-                position: Point::new(boxed.x + pad, y),
-                color: Color::from_rgb(0.09, 0.20, 0.30),
-                size: Pixels(size),
-                font: if line.bold { theme::UI_STRONG } else { theme::UI },
-                ..Text::default()
-            });
-            y += leading;
         }
     }
 }

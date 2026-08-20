@@ -5,6 +5,46 @@ app:
     it: Firma con CIE
     en: Sign with your CIE
 
+menu:
+  file:
+    it: File
+    en: File
+  open_document:
+    it: Apri documento…
+    en: Open document…
+  save_as:
+    it: Salva con nome…
+    en: Save as…
+  quit:
+    it: Esci
+    en: Quit
+  settings:
+    it: Impostazioni
+    en: Settings
+  about:
+    it: Informazioni
+    en: About
+
+about:
+  tagline:
+    it: Firma documenti con la Carta d'Identità Elettronica italiana.
+    en: Sign documents with the Italian electronic identity card.
+  version:
+    it: Versione
+    en: Version
+  author:
+    it: Autore
+    en: Author
+  licence:
+    it: Licenza
+    en: Licence
+  source:
+    it: Sorgenti
+    en: Source
+  credits:
+    it: "Costruito su underskrift (PAdES e CAdES), hayro (anteprima PDF) e iced (interfaccia). Carattere Titillium Web, SIL Open Font License 1.1."
+    en: "Built on underskrift (PAdES and CAdES), hayro (PDF preview) and iced (interface). Titillium Web typeface, SIL Open Font License 1.1."
+
 document:
   section:
     it: Documento
@@ -82,6 +122,114 @@ stamp:
   facsimile:
     it: "Il testo è un facsimile: nome e codice fiscale li legge dalla carta al momento della firma."
     en: "The text is a mock-up: name and tax code are read off the card at signing time."
+
+signature:
+  choose:
+    it: Scegli un'immagine…
+    en: Choose an image…
+  remove:
+    it: Rimuovi
+    en: Remove
+  unusable:
+    it: "Immagine della firma non utilizzabile: %{error}"
+    en: "The signature image cannot be used: %{error}"
+
+template:
+  plain:
+    it: Solo testo
+    en: Text only
+  handwritten:
+    it: Firma autografa
+    en: Handwritten signature
+  section:
+    it: Template
+    en: Template
+  title:
+    it: Template di firma
+    en: Signature templates
+  edit:
+    it: Modifica i template…
+    en: Edit templates…
+  new:
+    it: Nuovo template
+    en: New template
+  copy_of:
+    it: "%{name} (copia)"
+    en: "%{name} (copy)"
+  add:
+    it: Nuovo
+    en: New
+  duplicate:
+    it: Duplica
+    en: Duplicate
+  delete:
+    it: Elimina
+    en: Delete
+  add_piece:
+    it: Aggiungi
+    en: Add
+  piece_caption:
+    it: Intestazione
+    en: Caption
+  piece_holder:
+    it: Nome del titolare
+    en: Holder's name
+  piece_tax_code:
+    it: Codice fiscale
+    en: Tax code
+  piece_date:
+    it: Data
+    en: Date
+  piece_reason:
+    it: Motivo
+    en: Reason
+  piece_text:
+    it: Testo libero
+    en: Free text
+  piece_text_default:
+    it: Testo
+    en: Text
+  piece_image:
+    it: Firma autografa
+    en: Handwritten signature
+  piece_hint:
+    it: "Il pezzo compare al centro del riquadro: trascinalo dove vuoi e tira gli angoli per ridimensionarlo."
+    en: "The piece lands in the middle of the box: drag it where you want it and pull the corners to resize."
+  nothing_selected:
+    it: Nessun pezzo selezionato. Fai clic su un pezzo del riquadro per cambiarlo.
+    en: No piece selected. Click a piece in the box to change it.
+  size:
+    it: Corpo
+    en: Size
+  bold:
+    it: Grassetto
+    en: Bold
+  content:
+    it: Testo
+    en: Text
+  left:
+    it: A sinistra
+    en: Left
+  centre:
+    it: Centrato
+    en: Centred
+  right:
+    it: A destra
+    en: Right
+  remove_piece:
+    it: Togli dal riquadro
+    en: Remove from the box
+  picture:
+    it: Immagine
+    en: Picture
+  picture_missing:
+    it: "L'immagine di questo template non si apre: il riquadro verrà firmato senza."
+    en: "This template's picture cannot be opened: the box will be signed without it."
+
+settings:
+  not_saved:
+    it: "Impostazioni non salvate: %{error}"
+    en: "Settings not saved: %{error}"
 
 output:
   section:

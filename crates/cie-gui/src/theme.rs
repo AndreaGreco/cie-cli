@@ -8,7 +8,7 @@
 
 use iced::font::Weight;
 use iced::widget::{button, container, text_input};
-use iced::{Background, Border, Color, Font, Theme};
+use iced::{Background, Border, Color, Font, Shadow, Theme};
 
 /// Titillium Web, the face of the Italian public administration design system.
 ///
@@ -306,5 +306,96 @@ pub fn field(theme: &Theme, status: text_input::Status) -> text_input::Style {
             a: 0.3,
             ..palette.primary.base.color
         },
+    }
+}
+
+/// A menu title in the application bar.
+///
+/// Reads as plain text until you go near it: a bar full of buttons that all
+/// look like buttons is a bar you have to read twice.
+pub fn menu_title(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    button::Style {
+        background: match status {
+            button::Status::Hovered | button::Status::Pressed => {
+                Some(Background::Color(hover(theme)))
+            }
+            _ => None,
+        },
+        text_color: palette.background.base.text,
+        border: Border {
+            radius: RADIUS.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// The title whose list is currently open. It has to stay lit while the list
+/// is down, or the pointer moves away and nothing says where the list came
+/// from.
+pub fn menu_title_open(theme: &Theme, _status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    button::Style {
+        background: Some(Background::Color(hover(theme))),
+        text_color: palette.primary.base.color,
+        border: Border {
+            radius: RADIUS.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// One line of an open menu.
+pub fn menu_entry(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    let selected = matches!(status, button::Status::Hovered | button::Status::Pressed);
+
+    button::Style {
+        background: selected.then_some(Background::Color(palette.primary.base.color)),
+        text_color: if selected {
+            palette.primary.base.text
+        } else {
+            palette.background.base.text
+        },
+        border: Border {
+            radius: 2.0.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// A surface that floats over the window: an open menu, and whatever else
+/// comes to sit above the page.
+pub fn floating(theme: &Theme) -> container::Style {
+    let (surface, line) = if is_dark(theme) {
+        (SURFACE_DARK, BORDER_DARK)
+    } else {
+        (SURFACE_LIGHT, BORDER_LIGHT)
+    };
+
+    container::Style {
+        background: Some(Background::Color(surface)),
+        border: Border {
+            radius: RADIUS.into(),
+            width: 1.0,
+            color: line,
+        },
+        shadow: Shadow {
+            color: Color { a: 0.20, ..Color::BLACK },
+            offset: iced::Vector::new(0.0, 3.0),
+            blur_radius: 10.0,
+        },
+        ..Default::default()
+    }
+}
+
+/// The tint a bar control wears under the pointer.
+fn hover(theme: &Theme) -> Color {
+    Color {
+        a: 0.10,
+        ..theme.extended_palette().primary.base.color
     }
 }

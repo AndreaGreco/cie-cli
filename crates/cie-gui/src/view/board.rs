@@ -1,0 +1,363 @@
+//! The signature box in the editor, and the dragging of the pieces in it.
+//!
+//! The same arithmetic as `view::stamp`, one level down: there the whole box
+//! is dragged over a page, here each piece is dragged inside the box. Both
+//! measure in fractions with y downwards, so both go through
+//! `preview::{move_stamp, resize_stamp}` — the rules about not falling off the
+//! edge and not shrinking to nothing are written once and apply to both.
+
+use iced::mouse;
+use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
+use iced::widget::image;
+use iced::{Color, Element, Fill, Pixels, Point, Rectangle, Renderer, Size, Theme};
+
+use cie_firma::{Align, Drawn, Ink};
+
+use crate::preview::{move_stamp, resize_stamp, Grab};
+use crate::state::Message;
+use crate::theme;
+
+/// Side of the corner grips, in pixels, and the slack on hitting one.
+const GRIP: f32 = 6.0;
+const SLACK: f32 = 1.8;
+
+/// The picture, as much of it as the board needs.
+#[derive(Debug, Clone)]
+pub struct Art {
+    pub handle: image::Handle,
+    /// Width over height. Without it the board would stretch the picture to
+    /// its rectangle while the renderer fits it, and the editor would be
+    /// showing a signature nobody is going to get.
+    pub ratio: f32,
+}
+
+/// The box as the editor shows it.
+pub fn canvas(
+    pieces: Vec<Drawn>,
+    selected: Option<usize>,
+    picture: Option<Art>,
+    size_pt: (f32, f32),
+) -> Element<'static, Message> {
+    canvas::Canvas::new(Board {
+        pieces,
+        selected,
+        picture,
+        size_pt,
+    })
+    .width(Fill)
+    .height(Fill)
+    .into()
+}
+
+struct Board {
+    /// Already resolved: the editor shows the words that will be printed, not
+    /// the names of the pieces that produce them.
+    pieces: Vec<Drawn>,
+    selected: Option<usize>,
+    picture: Option<Art>,
+    /// The box in PDF points: its shape, and the scale every type size is
+    /// measured against.
+    size_pt: (f32, f32),
+}
+
+#[derive(Default)]
+struct Dragging {
+    grab: Option<Grab>,
+    last: Option<Point>,
+}
+
+impl Board {
+    /// Where the box lands inside the canvas: as wide as it can be, centred,
+    /// keeping the proportions the box will really have.
+    fn box_rect(&self, bounds: Rectangle) -> Rectangle {
+        let ratio = (self.size_pt.0 / self.size_pt.1).max(0.01);
+
+        let mut width = bounds.width;
+        let mut height = width / ratio;
+        if height > bounds.height {
+            height = bounds.height;
+            width = height * ratio;
+        }
+        Rectangle {
+            x: (bounds.width - width) / 2.0,
+            y: (bounds.height - height) / 2.0,
+            width,
+            height,
+        }
+    }
+
+    fn piece_rect(&self, boxed: Rectangle, index: usize) -> Rectangle {
+        share(boxed, self.pieces[index].placed.rect)
+    }
+
+    fn corners(&self, boxed: Rectangle, index: usize) -> [Point; 4] {
+        let r = self.piece_rect(boxed, index);
+        [
+            Point::new(r.x, r.y),
+            Point::new(r.x + r.width, r.y),
+            Point::new(r.x, r.y + r.height),
+            Point::new(r.x + r.width, r.y + r.height),
+        ]
+    }
+
+    /// What is under a point: a grip of the selected piece first, then any
+    /// piece's body, topmost last-drawn first.
+    ///
+    /// Only the selected piece shows grips, so only it can be resized. That is
+    /// what stops a click meant to select a piece from resizing its neighbour.
+    fn under(&self, boxed: Rectangle, p: Point) -> Option<(usize, Grab)> {
+        if let Some(index) = self.selected.filter(|i| *i < self.pieces.len())
+            && let Some(corner) = self
+                .corners(boxed, index)
+                .iter()
+                .position(|c| c.distance(p) <= GRIP * SLACK)
+        {
+            return Some((index, Grab::Corner(corner)));
+        }
+
+        (0..self.pieces.len())
+            .rev()
+            .find(|i| self.piece_rect(boxed, *i).contains(p))
+            .map(|i| (i, Grab::Body))
+    }
+}
+
+impl canvas::Program<Message> for Board {
+    type State = Dragging;
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: &canvas::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<Message>> {
+        let local = |p: Point| Point::new(p.x - bounds.x, p.y - bounds.y);
+        let boxed = self.box_rect(bounds);
+
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let p = local(cursor.position_over(bounds)?);
+                let found = self.under(boxed, p);
+
+                state.grab = found.map(|(_, grab)| grab);
+                state.last = Some(p);
+
+                // A press on nothing clears the selection, which is how you
+                // put the properties panel away without deleting anything.
+                Some(canvas::Action::publish(Message::PieceSelected(
+                    found.map(|(index, _)| index),
+                )))
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                let grab = state.grab?;
+                let index = self.selected?;
+                let rect = self.pieces.get(index)?.placed.rect;
+
+                let p = local(cursor.position()?);
+                let previous = state.last.replace(p)?;
+
+                let moved = match grab {
+                    Grab::Body => move_stamp(
+                        rect,
+                        (p.x - previous.x) / boxed.width,
+                        (p.y - previous.y) / boxed.height,
+                    ),
+                    Grab::Corner(corner) => resize_stamp(
+                        rect,
+                        corner,
+                        (
+                            (p.x - boxed.x) / boxed.width,
+                            (p.y - boxed.y) / boxed.height,
+                        ),
+                    ),
+                };
+                Some(canvas::Action::publish(Message::PieceMoved(moved)))
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.grab = None;
+                state.last = None;
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let boxed = self.box_rect(bounds);
+        let accent = theme.extended_palette().primary.base.color;
+        let mut frame = Frame::new(renderer, bounds.size());
+
+        // The box itself: white paper with a hairline, the way underskrift
+        // draws it into the PDF.
+        let sheet = Path::rectangle(Point::new(boxed.x, boxed.y), boxed.size());
+        frame.fill(&sheet, Color::WHITE);
+        frame.stroke(
+            &sheet,
+            Stroke::default()
+                .with_width(1.0)
+                .with_color(Color::from_rgb(0.6, 0.6, 0.6)),
+        );
+
+        paint(&mut frame, boxed, &self.pieces, self.picture.as_ref(), self.size_pt.0);
+
+        for (index, drawn) in self.pieces.iter().enumerate() {
+            let rect = share(boxed, drawn.placed.rect);
+            let outline = Path::rectangle(Point::new(rect.x, rect.y), rect.size());
+            if self.selected == Some(index) {
+                frame.stroke(&outline, Stroke::default().with_width(1.5).with_color(accent));
+                for c in self.corners(boxed, index) {
+                    frame.fill(
+                        &Path::rectangle(
+                            Point::new(c.x - GRIP / 2.0, c.y - GRIP / 2.0),
+                            Size::new(GRIP, GRIP),
+                        ),
+                        accent,
+                    );
+                }
+            } else {
+                // Every piece keeps a faint outline: they are invisible
+                // otherwise, and an empty one — a reason nobody gave — would
+                // be impossible to find and click.
+                frame.stroke(
+                    &outline,
+                    Stroke::default()
+                        .with_width(1.0)
+                        .with_color(Color { a: 0.25, ..accent }),
+                );
+            }
+        }
+
+        vec![frame.into_geometry()]
+    }
+
+    fn mouse_interaction(
+        &self,
+        state: &Self::State,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> mouse::Interaction {
+        if state.grab.is_some() {
+            return mouse::Interaction::Grabbing;
+        }
+        let Some(p) = cursor.position_over(bounds) else {
+            return mouse::Interaction::default();
+        };
+        let boxed = self.box_rect(bounds);
+
+        match self.under(boxed, Point::new(p.x - bounds.x, p.y - bounds.y)) {
+            Some((_, Grab::Corner(0 | 3))) => mouse::Interaction::ResizingDiagonallyDown,
+            Some((_, Grab::Corner(_))) => mouse::Interaction::ResizingDiagonallyUp,
+            Some((_, Grab::Body)) => mouse::Interaction::Grab,
+            None => mouse::Interaction::default(),
+        }
+    }
+}
+
+/// Paints the contents of a box: the lines where they were put, and the
+/// picture fitted into its own rectangle.
+///
+/// The editor and the page draw through here, and that is the whole point.
+/// Two copies of this would be two answers to "what will the stamp look
+/// like", and the one on the page is the one people trust.
+///
+/// `box_width_pt` is what turns a type size in points into pixels. Off the
+/// box's real width, so a box dragged twice as wide shows type at the size it
+/// will really be printed at.
+pub fn paint(
+    frame: &mut Frame,
+    boxed: Rectangle,
+    pieces: &[Drawn],
+    picture: Option<&Art>,
+    box_width_pt: f32,
+) {
+    let px_per_pt = boxed.width / box_width_pt.max(1.0);
+
+    for drawn in pieces {
+        let area = share(boxed, drawn.placed.rect);
+        match &drawn.ink {
+            Ink::Picture => {
+                if let Some(art) = picture {
+                    draw_picture(frame, art, area);
+                }
+            }
+            Ink::Line(text) => draw_line(frame, drawn, text, area, px_per_pt),
+        }
+    }
+}
+
+/// The picture, fitted and centred the way the renderer will fit it.
+fn draw_picture(frame: &mut Frame, art: &Art, area: Rectangle) {
+        let ratio = if art.ratio > 0.0 { art.ratio } else { 1.0 };
+
+        let (mut width, mut height) = (area.width, area.width / ratio);
+        if height > area.height {
+            height = area.height;
+            width = height * ratio;
+        }
+
+        frame.draw_image(
+            Rectangle {
+                x: area.x + (area.width - width) / 2.0,
+                y: area.y + (area.height - height) / 2.0,
+                width,
+                height,
+            },
+            &art.handle,
+        );
+}
+
+/// A line, drawn where and how the renderer will draw it.
+///
+/// Two details are what make this a preview rather than an impression. The
+/// line is placed by the width Helvetica will give it, not the width the
+/// interface's typeface gives it here — the glyphs differ either way, but a
+/// centred line lands where it will really land. And it is clipped to its own
+/// rectangle, because the renderer clips too: a preview that shows a tidy box
+/// over a PDF that spills is worse than one that shows the spill.
+fn draw_line(frame: &mut Frame, drawn: &Drawn, text: &str, area: Rectangle, px_per_pt: f32) {
+    let size = drawn.placed.size * px_per_pt;
+    if size < 4.0 {
+        return;
+    }
+
+    let drawn_width = drawn.placed.width_of(text) * px_per_pt;
+    let x = area.x
+        + match drawn.placed.align {
+            Align::Left => 0.0,
+            Align::Centre => (area.width - drawn_width) / 2.0,
+            Align::Right => area.width - drawn_width,
+        };
+
+    frame.with_clip(area, |frame| {
+        frame.fill_text(Text {
+            content: text.to_string(),
+            position: Point::new(x, area.y),
+            color: Color::BLACK,
+            size: Pixels(size),
+            font: if drawn.placed.bold {
+                theme::UI_STRONG
+            } else {
+                theme::UI
+            },
+            ..Text::default()
+        });
+    });
+}
+
+/// A fraction of the box as a rectangle on screen.
+pub fn share(boxed: Rectangle, [x0, y0, x1, y1]: [f32; 4]) -> Rectangle {
+    Rectangle {
+        x: boxed.x + x0 * boxed.width,
+        y: boxed.y + y0 * boxed.height,
+        width: (x1 - x0) * boxed.width,
+        height: (y1 - y0) * boxed.height,
+    }
+}

@@ -6,6 +6,8 @@ use iced::widget::{
 use iced::{Alignment, Element, Fill};
 use rust_i18n::t;
 
+use cie_firma::Piece;
+
 use crate::job::Kind;
 use crate::state::{Message, State};
 use crate::theme;
@@ -17,6 +19,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     if state.shows_preview() {
         sections = sections.push(stamp(state));
+        sections = sections.push(template(state));
     }
     if state.card.stored.is_some() {
         sections = sections.push(card(state));
@@ -177,6 +180,61 @@ fn stamp(state: &State) -> Element<'_, Message> {
         );
 
     section(t!("stamp.section"), body)
+}
+
+/// `pick_list` needs `Display`, and a `Template` has a name but no opinion
+/// about how a list should show it.
+#[derive(Debug, Clone, PartialEq)]
+struct Choice {
+    index: usize,
+    name: String,
+}
+
+impl std::fmt::Display for Choice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name)
+    }
+}
+
+/// Which composed box signs this document, and the way into the editor.
+///
+/// The composing itself is not here. It needs room to drag things around in,
+/// and a sidebar 340 pixels wide is not room.
+fn template(state: &State) -> Element<'_, Message> {
+    let choices: Vec<Choice> = state
+        .settings
+        .templates
+        .iter()
+        .enumerate()
+        .map(|(index, t)| Choice {
+            index,
+            name: t.name.clone(),
+        })
+        .collect();
+    let chosen = choices.get(state.settings.active).cloned();
+
+    let mut body = column![
+        pick_list(choices, chosen, |c| Message::TemplateChosen(c.index))
+            .text_size(13)
+            .padding(6)
+            .width(Fill),
+        button(text(t!("template.edit")).size(13))
+            .style(theme::secondary)
+            .on_press(Message::ShowTemplates),
+    ]
+    .spacing(10);
+
+    // A template whose picture has gone missing still signs — without the
+    // picture. Saying so here is the only warning before it happens.
+    if state.settings.active().holds(&Piece::Image) && state.signature.is_none() {
+        body = body.push(
+            text(t!("template.picture_missing"))
+                .size(11)
+                .style(iced::widget::text::danger),
+        );
+    }
+
+    section(t!("template.section"), body)
 }
 
 /// Only shown once the keyring knows this card: an empty "no PIN saved" card

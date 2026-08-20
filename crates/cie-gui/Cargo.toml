@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Interfaccia grafica per firmare documenti con la Carta d'Identità Elettronica"
 
 [[bin]]
@@ -50,6 +51,11 @@ installer-mode = "currentUser"
 cie-firma.workspace = true
 cie-lib.workspace = true
 anyhow.workspace = true
+
+# Le impostazioni utente stanno in un JSON accanto alla configurazione del
+# desktop: il portachiavi e' per il PIN, non per le preferenze.
+serde.workspace = true
+serde_json.workspace = true
 
 # `tokio` serve solo per `iced::time::every`, che drena il canale della carta.
 iced = { version = "0.14", features = ["canvas", "image", "advanced", "tokio"] }

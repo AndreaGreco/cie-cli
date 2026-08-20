@@ -1,6 +1,10 @@
 //! The window: application bar, desk, sidebar, action bar — and the signing
 //! panel laid over the lot.
 
+mod about;
+pub mod board;
+mod editor;
+mod menu;
 mod sidebar;
 mod sign;
 mod stamp;
@@ -11,7 +15,7 @@ use iced::widget::{
 use iced::{Alignment, ContentFit, Element, Fill, Length};
 use rust_i18n::t;
 
-use crate::state::{Message, Phase, State};
+use crate::state::{Message, Overlay, Phase, State};
 use crate::theme;
 
 /// Width of the sidebar. Fixed on purpose: a resizable split is one more thing
@@ -25,14 +29,32 @@ pub fn view(state: &State) -> Element<'_, Message> {
         action_bar(state),
     ];
 
-    match &state.phase {
-        Phase::Idle => window.into(),
-        phase => stack![window, sign::panel(phase, state)].into(),
+    // The signing panel goes on last: while the card is working it has to be
+    // the thing in front, whatever else was open when Firma was pressed.
+    let mut layers = stack![window];
+    if let Some(open) = state.menu {
+        layers = layers.push(menu::dropdown(open, state));
     }
+    match state.overlay {
+        Overlay::None => {}
+        Overlay::About => layers = layers.push(about::panel()),
+        Overlay::Templates { selected } => {
+            layers = layers.push(editor::panel(state, selected))
+        }
+    }
+    if let phase @ (Phase::Pin { .. } | Phase::Running { .. } | Phase::Done(_) | Phase::Failed(_)) =
+        &state.phase
+    {
+        layers = layers.push(sign::panel(phase, state));
+    }
+    layers.into()
 }
 
-/// The bar carries the name and who the card says you are. It is not a client
-/// side decoration: on a tiling compositor the frame is not ours to draw.
+/// The menus on the left, and on the right who the card says you are.
+///
+/// The program's name used to sit here. It has moved into About: the bar is
+/// now the place you act from, and a title that only repeats what the window
+/// manager already shows was the least useful thing on it.
 fn app_bar(state: &State) -> Element<'_, Message> {
     let card = match (&state.card.id, &state.card.stored) {
         (Some(id), Some(stored)) => match stored.holder() {
@@ -45,19 +67,26 @@ fn app_bar(state: &State) -> Element<'_, Message> {
 
     container(
         row![
-            text(t!("app.title")).size(17).font(theme::UI_STRONG),
+            menu::titles(state),
+            // About is a button, not a menu: a list that drops open to offer
+            // one thing is a click spent on nothing.
+            button(text(t!("menu.about")).size(14))
+                .style(theme::menu_title)
+                .padding([7, 10])
+                .on_press(Message::ShowAbout),
             space::horizontal(),
             card.size(13),
             button(text(state.mode.label().into_owned()).size(12))
                 .style(theme::quiet)
                 .on_press(Message::ThemeChanged(state.mode.next())),
         ]
-        .spacing(12)
+        .spacing(4)
         .align_y(Alignment::Center)
-        .padding([10, 16]),
+        .padding([0, 12]),
     )
     .style(theme::bar)
     .width(Fill)
+    .height(Length::Fixed(menu::BAR))
     .into()
 }
 
@@ -108,8 +137,19 @@ fn page(state: &State) -> Element<'_, Message> {
     let doc = state.document.as_ref().expect("checked by the caller");
     let handle = state.page_image.clone();
     let (ratio, zoom) = (doc.aspect_ratio(state.page), state.zoom);
-    let (page, stamp, reason) = (state.page, state.stamp, state.reason.as_str());
-    let holder = state.known_holder();
+    let (page, stamp) = (state.page, state.stamp);
+
+    // Resolved here, where the card and the settings are both in reach. The
+    // canvas gets words, not the means of working them out.
+    let facts = cie_firma::Facts::preview(
+        state.known_holder().as_ref(),
+        (!state.reason.trim().is_empty()).then(|| state.reason.trim()),
+    );
+    let pieces = state.settings.active().resolve(&facts);
+    let art = state.signature.as_ref().map(|s| board::Art {
+        handle: s.handle.clone(),
+        ratio: s.image.aspect_ratio(),
+    });
 
     // `responsive` reports the room actually left, which is what "fits the
     // window" has to mean. It sits outside the scrollable on purpose: inside,
@@ -134,7 +174,13 @@ fn page(state: &State) -> Element<'_, Message> {
             );
         }
         if let Some(d) = state.document.as_ref() {
-            layers = layers.push(stamp::canvas(d, page, stamp, reason, holder.clone()));
+            layers = layers.push(stamp::canvas(
+                d,
+                page,
+                stamp,
+                pieces.clone(),
+                art.clone(),
+            ));
         }
 
         scrollable(container(layers.width(w).height(h)).center_x(Fill))

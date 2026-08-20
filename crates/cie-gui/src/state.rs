@@ -5,16 +5,18 @@
 //! lands on, when signing is allowed, what the panel shows after a failure —
 //! can be tested without opening a window.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
-use cie_firma::PadesOptions;
+use anyhow::Result;
 use cie_firma::keyring::{self, CardSecret};
+use cie_firma::{Align, PadesOptions, Piece, Placed, StampImage, Template};
 use rust_i18n::t;
 
 use crate::job::{self, Kind, Request};
 use crate::preview::{Document, to_pdf_rect};
+use crate::settings::{self, Settings};
 use iced::widget::image;
 use crate::theme::Mode;
 
@@ -71,6 +73,29 @@ pub enum Message {
     CertifyToggled(bool),
     CertifyLevel(u8),
 
+    // Templates. These outlast the document, and the window.
+    /// Which template signs. Also which one the editor is showing.
+    TemplateChosen(usize),
+    TemplateAdded,
+    TemplateDuplicated,
+    TemplateDeleted,
+    TemplateRenamed(String),
+    /// Pick the picture for the template being edited.
+    ChooseSignatureImage,
+    SignatureImageChosen(Option<PathBuf>),
+    RemoveSignatureImage,
+
+    // The piece under the pointer in the editor
+    PieceAdded(Piece),
+    PieceSelected(Option<usize>),
+    /// Dragged or resized: fractions of the box, already normalised.
+    PieceMoved([f32; 4]),
+    PieceResized(f32),
+    PieceBoldToggled(bool),
+    PieceAligned(Align),
+    PieceTextChanged(String),
+    PieceRemoved,
+
     // Destination
     ChooseOutput,
     OutputChosen(Option<PathBuf>),
@@ -84,6 +109,14 @@ pub enum Message {
     OutcomeDismissed,
     OpenResult,
     OpenFolder,
+
+    // Menus and the panels they open
+    MenuToggled(Menu),
+    MenuClosed,
+    ShowAbout,
+    ShowTemplates,
+    OverlayDismissed,
+    Quit,
 
     // Background
     Tick,
@@ -121,6 +154,53 @@ pub enum Phase {
     Running { step: usize, label: String },
     Done(PathBuf),
     Failed(String),
+}
+
+/// A menu in the application bar. `impl` in `view::menu`, which is the only
+/// thing that has an opinion about what they are called and how wide they are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Menu {
+    File,
+    Settings,
+}
+
+/// A panel laid over the window that has nothing to do with the card.
+///
+/// Kept apart from `Phase`, which is the signing story from the PIN to the
+/// outcome. Folding the two together would give the signing state machine an
+/// About box as one of its steps, and the two can never be up at once anyway.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Overlay {
+    #[default]
+    None,
+    About,
+    /// The template editor. What it edits is the active template in
+    /// `settings`, changed in place and saved as it goes — so the only thing
+    /// the overlay itself has to remember is which piece is selected.
+    Templates {
+        selected: Option<usize>,
+    },
+}
+
+/// The user's handwritten signature, read off disk and ready for both the
+/// canvas and the card.
+#[derive(Debug, Clone)]
+pub struct Signature {
+    /// The bytes and their pixel size, in the shape `cie-firma` wants.
+    pub image: StampImage,
+    /// The same picture, in the shape the canvas wants. Reference counted, so
+    /// handing it to a widget on every frame costs nothing.
+    pub handle: image::Handle,
+}
+
+impl Signature {
+    fn load(path: &Path) -> Result<Self> {
+        let image = StampImage::read(path)?;
+        Ok(Self {
+            handle: image::Handle::from_bytes(image.data.clone()),
+            image,
+        })
+    }
 }
 
 /// The card on the reader, as far as we know.
@@ -161,8 +241,21 @@ pub struct State {
     // Card and signing
     pub card: Card,
     pub phase: Phase,
+    /// The menu whose list is down, if any.
+    pub menu: Option<Menu>,
+    pub overlay: Overlay,
     pub notice: Option<String>,
     pub mode: Mode,
+
+    // User settings
+    pub settings: Settings,
+    /// The picture the settings name, once it has been read. `None` when there
+    /// is none, and also when the one named could not be opened.
+    pub signature: Option<Signature>,
+    /// Where the settings are written back. `None` in tests and wherever the
+    /// platform gave us no configuration directory: then nothing is kept,
+    /// rather than something being written to a guess.
+    settings_path: Option<PathBuf>,
 
     identifying: Option<Receiver<Option<String>>>,
     job: Option<Receiver<job::Message>>,
@@ -186,8 +279,13 @@ impl Default for State {
             output_chosen: false,
             card: Card::default(),
             phase: Phase::Idle,
+            menu: None,
+            overlay: Overlay::None,
             notice: None,
             mode: Mode::default(),
+            settings: Settings::default(),
+            signature: None,
+            settings_path: None,
             identifying: None,
             job: None,
         }
@@ -195,12 +293,23 @@ impl Default for State {
 }
 
 impl State {
-    /// Starts asking the reader who is on it. No PIN involved.
+    /// Starts asking the reader who is on it, and picks up what the user
+    /// settled on last time. No PIN involved in either.
     pub fn new() -> Self {
-        Self {
+        let settings_path = settings::path();
+        let settings = settings_path
+            .as_deref()
+            .map(Settings::load)
+            .unwrap_or_default();
+
+        let mut state = Self {
             identifying: Some(job::identify()),
+            settings,
+            settings_path,
             ..Self::default()
-        }
+        };
+        state.load_signature();
+        state
     }
 
     /// True while something in the background needs draining.
@@ -228,7 +337,21 @@ impl State {
             return;
         }
 
+        // Anything that is not the menu itself closes it. A list left hanging
+        // over the window after the thing it asked for has happened is a list
+        // the user has to dismiss before they can see what they did.
+        if !matches!(message, Message::MenuToggled(_) | Message::Tick) {
+            self.menu = None;
+        }
+
         match message {
+            Message::MenuToggled(menu) => {
+                // The same title again puts the list away, which is what a
+                // second click on an open menu means everywhere else.
+                self.menu = (self.menu != Some(menu)).then_some(menu);
+            }
+            Message::MenuClosed => {}
+
             Message::DocumentChosen(Some(p)) | Message::FileDropped(p) => self.open(p),
             Message::DocumentChosen(None) | Message::ChooseDocument => {}
 
@@ -269,6 +392,112 @@ impl State {
             Message::CertifyToggled(on) => self.certify = on.then_some(2),
             Message::CertifyLevel(l) => self.certify = Some(l),
 
+            Message::TemplateChosen(index) => {
+                self.settings.active = index.min(self.settings.templates.len() - 1);
+                self.select(None);
+                self.load_signature();
+                self.save_settings();
+            }
+            Message::TemplateAdded => {
+                self.settings.templates.push(Template::classic(t!("template.new")));
+                self.settings.active = self.settings.templates.len() - 1;
+                self.select(None);
+                self.load_signature();
+                self.save_settings();
+            }
+            Message::TemplateDuplicated => {
+                let mut copy = self.settings.active().clone();
+                copy.name = t!("template.copy_of", name = copy.name).to_string();
+                self.settings.templates.push(copy);
+                self.settings.active = self.settings.templates.len() - 1;
+                self.select(None);
+                self.save_settings();
+            }
+            // The last one never goes: with no templates there is nothing to
+            // sign with, and an editor opening on an empty list is an editor
+            // nobody knows how to start.
+            Message::TemplateDeleted if self.settings.templates.len() > 1 => {
+                let gone = self.settings.active.min(self.settings.templates.len() - 1);
+                self.settings.templates.remove(gone);
+                self.settings.active = gone.min(self.settings.templates.len() - 1);
+                self.select(None);
+                self.load_signature();
+                self.save_settings();
+            }
+            Message::TemplateDeleted => {}
+            Message::TemplateRenamed(name) => {
+                self.settings.active_mut().name = name;
+                self.save_settings();
+            }
+
+            Message::SignatureImageChosen(Some(path)) => {
+                self.notice = None;
+                self.settings.active_mut().image = Some(path);
+                self.load_signature();
+                // A file that could not be read is not worth remembering: the
+                // next run would only fail to open it again.
+                if self.signature.is_none() {
+                    self.settings.active_mut().image = None;
+                } else if !self.settings.active().holds(&Piece::Image) {
+                    // A picture nobody put in the box would be a picture that
+                    // silently does nothing.
+                    self.add_piece(Piece::Image);
+                }
+                self.save_settings();
+            }
+            Message::SignatureImageChosen(None) | Message::ChooseSignatureImage => {}
+            Message::RemoveSignatureImage => {
+                self.notice = None;
+                self.settings.active_mut().image = None;
+                self.signature = None;
+                self.save_settings();
+            }
+
+            Message::PieceAdded(piece) => {
+                self.add_piece(piece);
+                self.save_settings();
+            }
+            Message::PieceSelected(which) => self.select(which),
+            Message::PieceMoved(rect) => {
+                if let Some(piece) = self.selected_piece_mut() {
+                    piece.rect = rect;
+                    self.save_settings();
+                }
+            }
+            Message::PieceResized(size) => {
+                if let Some(piece) = self.selected_piece_mut() {
+                    piece.size = size.clamp(4.0, 48.0);
+                    self.save_settings();
+                }
+            }
+            Message::PieceBoldToggled(bold) => {
+                if let Some(piece) = self.selected_piece_mut() {
+                    piece.bold = bold;
+                    self.save_settings();
+                }
+            }
+            Message::PieceAligned(align) => {
+                if let Some(piece) = self.selected_piece_mut() {
+                    piece.align = align;
+                    self.save_settings();
+                }
+            }
+            Message::PieceTextChanged(content) => {
+                if let Some(piece) = self.selected_piece_mut()
+                    && let Piece::Text { content: slot } = &mut piece.piece
+                {
+                    *slot = content;
+                    self.save_settings();
+                }
+            }
+            Message::PieceRemoved => {
+                if let Some(index) = self.selected() {
+                    self.settings.active_mut().pieces.remove(index);
+                    self.select(None);
+                    self.save_settings();
+                }
+            }
+
             Message::OutputChosen(Some(p)) => {
                 self.output = p;
                 self.output_chosen = true;
@@ -300,13 +529,17 @@ impl State {
                 self.phase = Phase::Idle;
             }
 
+            Message::ShowAbout => self.overlay = Overlay::About,
+            Message::ShowTemplates => self.overlay = Overlay::Templates { selected: None },
+            Message::OverlayDismissed => self.overlay = Overlay::None,
+
             Message::Tick => self.poll(),
             Message::ForgetCard => self.forget(),
             Message::ThemeChanged(mode) => self.mode = mode,
 
             // Side effects with nothing to change: the view turns these into
             // commands, `update` only has to not choke on them.
-            Message::OpenResult | Message::OpenFolder => {}
+            Message::OpenResult | Message::OpenFolder | Message::Quit => {}
         }
     }
 
@@ -392,15 +625,7 @@ impl State {
             self.remember(&pin);
         }
 
-        let options = match &self.document {
-            Some(doc) if self.kind == Kind::Pades => PadesOptions {
-                page: self.page as u32,
-                rect: to_pdf_rect(self.stamp, &doc.geometry(self.page)),
-                reason: (!self.reason.trim().is_empty()).then(|| self.reason.trim().to_string()),
-                certify: self.certify,
-            },
-            _ => PadesOptions::default(),
-        };
+        let options = self.pades_options();
 
         self.phase = Phase::Running {
             step: 0,
@@ -413,6 +638,126 @@ impl State {
             output: self.output.clone(),
             options,
         }));
+    }
+
+    /// What the PAdES layer is being asked for.
+    ///
+    /// Gathered in one place, and out of `start_signing`, so what ends up in
+    /// the stamp can be checked without a card on the reader.
+    fn pades_options(&self) -> PadesOptions {
+        match &self.document {
+            Some(doc) if self.kind == Kind::Pades => PadesOptions {
+                page: self.page as u32,
+                rect: to_pdf_rect(self.stamp, &doc.geometry(self.page)),
+                reason: (!self.reason.trim().is_empty()).then(|| self.reason.trim().to_string()),
+                certify: self.certify,
+                // The box the user composed, and the picture in it: the two
+                // settings that outlast this document.
+                stamp: cie_firma::Stamp::Composed {
+                    template: self.settings.active().clone(),
+                    image: self.signature.as_ref().map(|s| s.image.clone()),
+                },
+            },
+            _ => PadesOptions::default(),
+        }
+    }
+
+    /// The signature box as it is on the page right now, in PDF points.
+    ///
+    /// The editor needs both numbers, and for different reasons: the shape, so
+    /// what is composed has the proportions it will really have, and the width,
+    /// because that is what turns a type size in points into pixels on screen.
+    /// Compose against the wrong width and every size in the editor is a lie.
+    ///
+    /// `None` with no document open, when the editor falls back to the default
+    /// rectangle.
+    pub fn box_size_pt(&self) -> Option<(f32, f32)> {
+        let doc = self.document.as_ref()?;
+        let [x0, y0, x1, y1] = self.stamp;
+        let (page_w, page_h) = doc.display_size(self.page);
+
+        let (width, height) = ((x1 - x0) * page_w, (y1 - y0) * page_h);
+        (width > 0.0 && height > 0.0).then_some((width, height))
+    }
+
+    /// Which piece the editor has selected, if it is even open.
+    pub fn selected(&self) -> Option<usize> {
+        match self.overlay {
+            Overlay::Templates { selected } => selected,
+            _ => None,
+        }
+    }
+
+    fn select(&mut self, which: Option<usize>) {
+        if let Overlay::Templates { selected } = &mut self.overlay {
+            *selected = which;
+        }
+    }
+
+    /// The piece being edited, to be changed.
+    fn selected_piece_mut(&mut self) -> Option<&mut Placed> {
+        let index = self.selected()?;
+        self.settings.active_mut().pieces.get_mut(index)
+    }
+
+    /// Puts a piece in the box and selects it.
+    ///
+    /// It lands in the middle rather than under the pointer: the palette is a
+    /// list of buttons, not a drag source, so there is no pointer to land
+    /// under. Selected, because the next thing anybody does with a piece they
+    /// just added is drag it somewhere.
+    fn add_piece(&mut self, piece: Piece) {
+        // A picture wants room; a line wants a line's worth of it.
+        let rect = match piece {
+            Piece::Image => [0.30, 0.25, 0.70, 0.75],
+            _ => [0.20, 0.40, 0.80, 0.60],
+        };
+
+        let template = self.settings.active_mut();
+        template.pieces.push(Placed {
+            piece,
+            rect,
+            size: 7.0,
+            bold: false,
+            align: Align::Left,
+        });
+        let last = template.pieces.len() - 1;
+
+        self.select(Some(last));
+    }
+
+    /// Reads the picture the settings name, if they name one.
+    ///
+    /// A path that no longer resolves — the scan was moved, or the settings
+    /// came from another machine — is said out loud. Silently falling back to
+    /// a text-only stamp would be a signature that quietly changed shape.
+    fn load_signature(&mut self) {
+        let Some(path) = self.settings.active().image.clone() else {
+            self.signature = None;
+            return;
+        };
+
+        match Signature::load(&path) {
+            Ok(signature) => self.signature = Some(signature),
+            Err(e) => {
+                self.signature = None;
+                self.notice =
+                    Some(t!("signature.unusable", error = format!("{e:#}")).to_string());
+            }
+        }
+    }
+
+    /// Writes the settings back, if there is anywhere to write them.
+    ///
+    /// A settings file that cannot be written must not stop anything: the
+    /// choice still holds for this session, it just will not be there tomorrow.
+    fn save_settings(&mut self) {
+        let Some(path) = &self.settings_path else {
+            return;
+        };
+        if let Err(e) = self.settings.save(path) {
+            self.notice = Some(t!("settings.not_saved", error = format!("{e:#}")).to_string());
+        }
     }
 
     /// Writes the PIN under this card's id. Without an id there is nowhere to
@@ -714,5 +1059,282 @@ mod tests {
         assert_eq!(state.page, 0);
         state.update(Message::PageBack);
         assert_eq!(state.page, 0);
+    }
+
+    /// A 2x1 PNG: the smallest thing that is still a picture with a shape.
+    const SIGNATURE_PNG: &[u8] = include_bytes!("../../cie-firma/tests/fixtures/firma.png");
+
+    fn with_a_signature() -> (State, tempfile::TempDir, PathBuf) {
+        let (mut state, dir) = with_a_pdf();
+        let picture = dir.path().join("firma.png");
+        std::fs::write(&picture, SIGNATURE_PNG).unwrap();
+
+        state.update(Message::ShowTemplates);
+        state.update(Message::SignatureImageChosen(Some(picture.clone())));
+        (state, dir, picture)
+    }
+
+    /// The template in `settings` is the one that signs, picture and all.
+    #[test]
+    fn the_active_template_is_the_one_that_signs() {
+        let (state, _dir, picture) = with_a_signature();
+
+        assert_eq!(state.settings.active().image.as_ref(), Some(&picture));
+        assert!(state.signature.is_some(), "the picture was never read");
+        assert_eq!(state.notice, None, "nothing went wrong, so nothing to say");
+
+        let cie_firma::Stamp::Composed { template, image } = state.pades_options().stamp else {
+            panic!("the GUI must sign with a template");
+        };
+        assert_eq!(&template, state.settings.active());
+        assert_eq!(image.map(|i| (i.width, i.height)), Some((2, 1)));
+    }
+
+    /// Choosing a picture puts it in the box. A picture the template carries
+    /// but never draws would be a setting that silently does nothing.
+    #[test]
+    fn a_chosen_picture_lands_in_the_box() {
+        let (state, _dir, _) = with_a_signature();
+        assert!(state.settings.active().holds(&Piece::Image));
+    }
+
+    /// ...and only once, however many times it is changed.
+    #[test]
+    fn changing_the_picture_does_not_add_it_again() {
+        let (mut state, dir, _) = with_a_signature();
+        let other = dir.path().join("altra.png");
+        std::fs::write(&other, SIGNATURE_PNG).unwrap();
+
+        state.update(Message::SignatureImageChosen(Some(other)));
+
+        let pictures = state
+            .settings
+            .active()
+            .pieces
+            .iter()
+            .filter(|p| p.piece == Piece::Image)
+            .count();
+        assert_eq!(pictures, 1);
+    }
+
+    /// A file that is not a picture must be turned away where it can still be
+    /// re-chosen, and must not be written into the template: remembering it
+    /// would only make the next run fail on startup instead.
+    #[test]
+    fn a_file_that_is_not_a_picture_is_refused_and_not_remembered() {
+        let (mut state, dir) = with_a_pdf();
+        let not_a_picture = dir.path().join("lettera.png");
+        std::fs::write(&not_a_picture, b"questo non e' un PNG").unwrap();
+
+        state.update(Message::SignatureImageChosen(Some(not_a_picture)));
+
+        assert!(state.signature.is_none());
+        assert_eq!(state.settings.active().image, None);
+        assert!(state.notice.is_some(), "the refusal has to be visible");
+    }
+
+    /// A picture that has been moved or deleted since it was chosen must be
+    /// said out loud, and must not cost the signature: the rest of the box is
+    /// still drawn.
+    #[test]
+    fn a_picture_that_is_no_longer_there_is_reported() {
+        let (mut state, dir) = with_a_pdf();
+        state.settings.active_mut().image = Some(dir.path().join("sparita.png"));
+
+        state.load_signature();
+
+        assert!(state.signature.is_none());
+        assert!(state.notice.is_some());
+
+        let cie_firma::Stamp::Composed { template, image } = state.pades_options().stamp else {
+            panic!("the GUI must sign with a template");
+        };
+        assert!(image.is_none());
+        assert!(!template.pieces.is_empty(), "the lines went with the picture");
+    }
+
+    // --- the editor ------------------------------------------------------
+
+    fn editing() -> (State, tempfile::TempDir) {
+        let (mut state, dir) = with_a_pdf();
+        state.update(Message::ShowTemplates);
+        (state, dir)
+    }
+
+    /// A piece lands in the box selected, because the next thing anybody does
+    /// with a piece they just added is drag it somewhere.
+    #[test]
+    fn an_added_piece_arrives_selected() {
+        let (mut state, _dir) = editing();
+        let before = state.settings.active().pieces.len();
+
+        state.update(Message::PieceAdded(Piece::Text {
+            content: "ciao".to_string(),
+        }));
+
+        assert_eq!(state.settings.active().pieces.len(), before + 1);
+        assert_eq!(state.selected(), Some(before));
+    }
+
+    /// Dragging changes the piece the editor has selected, and only that one.
+    #[test]
+    fn dragging_moves_the_selected_piece_alone() {
+        let (mut state, _dir) = editing();
+        let untouched = state.settings.active().pieces[1].rect;
+
+        state.update(Message::PieceSelected(Some(0)));
+        state.update(Message::PieceMoved([0.5, 0.5, 0.9, 0.7]));
+
+        assert_eq!(state.settings.active().pieces[0].rect, [0.5, 0.5, 0.9, 0.7]);
+        assert_eq!(state.settings.active().pieces[1].rect, untouched);
+    }
+
+    /// With nothing selected there is nothing to change, and a stray drag must
+    /// not land on whatever happens to be first.
+    #[test]
+    fn nothing_selected_means_nothing_changes() {
+        let (mut state, _dir) = editing();
+        let before = state.settings.active().clone();
+
+        state.update(Message::PieceSelected(None));
+        state.update(Message::PieceMoved([0.0, 0.0, 1.0, 1.0]));
+        state.update(Message::PieceResized(30.0));
+        state.update(Message::PieceRemoved);
+
+        assert_eq!(state.settings.active(), &before);
+    }
+
+    /// The type size is clamped: a box is a few dozen points tall, and a
+    /// mistyped 500 would draw one letter and lose the rest.
+    #[test]
+    fn the_type_size_stays_within_reason() {
+        let (mut state, _dir) = editing();
+        state.update(Message::PieceSelected(Some(0)));
+
+        state.update(Message::PieceResized(500.0));
+        assert_eq!(state.settings.active().pieces[0].size, 48.0);
+
+        state.update(Message::PieceResized(0.0));
+        assert_eq!(state.settings.active().pieces[0].size, 4.0);
+    }
+
+    /// Free text is the one piece whose words are the user's. Changing it must
+    /// reach the piece, and must not touch a piece that has no text of its own.
+    #[test]
+    fn free_text_can_be_typed_and_the_rest_cannot() {
+        let (mut state, _dir) = editing();
+
+        state.update(Message::PieceAdded(Piece::Text {
+            content: "prima".to_string(),
+        }));
+        state.update(Message::PieceTextChanged("dopo".to_string()));
+
+        let last = state.settings.active().pieces.last().unwrap();
+        assert_eq!(last.piece, Piece::Text { content: "dopo".to_string() });
+
+        // The date says what the clock says, whatever anybody types.
+        state.update(Message::PieceSelected(Some(3)));
+        let before = state.settings.active().pieces[3].piece.clone();
+        state.update(Message::PieceTextChanged("il mio compleanno".to_string()));
+        assert_eq!(state.settings.active().pieces[3].piece, before);
+    }
+
+    /// Removing takes the selection with it: leaving it pointing at an index
+    /// that has shifted under it would edit the wrong piece next.
+    #[test]
+    fn removing_a_piece_clears_the_selection() {
+        let (mut state, _dir) = editing();
+        let before = state.settings.active().pieces.len();
+
+        state.update(Message::PieceSelected(Some(0)));
+        state.update(Message::PieceRemoved);
+
+        assert_eq!(state.settings.active().pieces.len(), before - 1);
+        assert_eq!(state.selected(), None);
+    }
+
+    /// New, duplicate, delete — and never down to nothing. With no templates
+    /// there is nothing to sign with.
+    #[test]
+    fn templates_can_be_added_copied_and_removed_but_never_all() {
+        let (mut state, _dir) = editing();
+        assert_eq!(state.settings.templates.len(), 1);
+
+        state.update(Message::TemplateAdded);
+        assert_eq!(state.settings.templates.len(), 2);
+        assert_eq!(state.settings.active, 1, "the new one is the one you edit");
+
+        state.update(Message::TemplateRenamed("il mio".to_string()));
+        state.update(Message::TemplateDuplicated);
+        assert_eq!(state.settings.templates.len(), 3);
+        assert!(
+            state.settings.active().name.contains("il mio"),
+            "a copy should say what it is a copy of: {}",
+            state.settings.active().name
+        );
+
+        for _ in 0..5 {
+            state.update(Message::TemplateDeleted);
+        }
+        assert_eq!(state.settings.templates.len(), 1, "the last one has to stay");
+    }
+
+    /// Switching template switches the picture with it: each one carries its
+    /// own, and showing the previous one's would be a lie about what will sign.
+    #[test]
+    fn switching_template_switches_the_picture() {
+        let (mut state, _dir, _) = with_a_signature();
+        assert!(state.signature.is_some());
+
+        state.update(Message::TemplateAdded);
+        assert!(state.signature.is_none(), "a fresh template has no picture");
+
+        state.update(Message::TemplateChosen(0));
+        assert!(state.signature.is_some(), "the first one still has one");
+    }
+
+    /// A title opens its list, the same title again puts it away. Anything
+    /// else the user does closes it: a list left hanging over the window after
+    /// its command has run is one more click before you can see what happened.
+    #[test]
+    fn a_menu_opens_toggles_and_gets_out_of_the_way() {
+        let mut state = State::default();
+        assert_eq!(state.menu, None);
+
+        state.update(Message::MenuToggled(Menu::File));
+        assert_eq!(state.menu, Some(Menu::File));
+
+        state.update(Message::MenuToggled(Menu::File));
+        assert_eq!(state.menu, None, "the same title should have closed it");
+
+        state.update(Message::MenuToggled(Menu::File));
+        state.update(Message::ChooseDocument);
+        assert_eq!(state.menu, None, "running a command should have closed it");
+    }
+
+    /// The card thread ticks every 100 ms while it is working. If that closed
+    /// the menu, no menu could be opened during a signature at all.
+    #[test]
+    fn the_card_ticking_does_not_shut_the_menu() {
+        let mut state = State::default();
+        state.update(Message::MenuToggled(Menu::File));
+
+        state.update(Message::Tick);
+
+        assert_eq!(state.menu, Some(Menu::File));
+    }
+
+    /// About goes up and comes back down, and does not disturb the signing
+    /// state machine on its way past.
+    #[test]
+    fn about_opens_and_closes_without_touching_the_card() {
+        let mut state = State::default();
+
+        state.update(Message::ShowAbout);
+        assert_eq!(state.overlay, Overlay::About);
+        assert!(matches!(state.phase, Phase::Idle));
+
+        state.update(Message::OverlayDismissed);
+        assert_eq!(state.overlay, Overlay::None);
     }
 }
