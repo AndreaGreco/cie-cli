@@ -7,6 +7,7 @@
 // console is where the logs go, so only the shipped build hides it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod icon;
 mod job;
 mod preview;
 mod settings;
@@ -58,6 +59,7 @@ fn main() -> iced::Result {
         .subscription(subscription)
         .font(include_bytes!("../fonts/TitilliumWeb-Regular.ttf").as_slice())
         .font(include_bytes!("../fonts/TitilliumWeb-SemiBold.ttf").as_slice())
+        .font(include_bytes!("../fonts/lucide.ttf").as_slice())
         .default_font(theme::UI)
         .window(window)
         .run()

@@ -399,3 +399,50 @@ fn hover(theme: &Theme) -> Color {
         ..theme.extended_palette().primary.base.color
     }
 }
+
+/// A button in a toolbar that carries an icon and nothing else.
+///
+/// Quiet until the pointer is on it, because a row of six framed buttons
+/// reads as six things demanding attention rather than one setting with six
+/// positions.
+pub fn tool(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    button::Style {
+        background: match status {
+            button::Status::Hovered | button::Status::Pressed => {
+                Some(Background::Color(hover(theme)))
+            }
+            _ => None,
+        },
+        text_color: match status {
+            button::Status::Disabled => Color {
+                a: 0.35,
+                ..palette.background.base.text
+            },
+            _ => palette.background.base.text,
+        },
+        border: Border {
+            radius: RADIUS.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// The one of a row that is currently in force.
+///
+/// Filled rather than outlined: with three of these side by side, the question
+/// the eye asks is "which one", and only a filled one answers it from across
+/// the window.
+pub fn tool_chosen(theme: &Theme, _status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    button::Style {
+        background: Some(Background::Color(palette.primary.base.color)),
+        text_color: palette.primary.base.text,
+        border: Border {
+            radius: RADIUS.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    }
+}

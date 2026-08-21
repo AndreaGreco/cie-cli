@@ -5,13 +5,14 @@
 //! editor with a live preview has to behave to be worth having one.
 
 use iced::widget::{
-    button, checkbox, column, container, pick_list, row, space, text, text_input,
+    button, checkbox, column, container, pick_list, row, space, text, text_input, tooltip,
 };
 use iced::{Alignment, Element, Fill, Length};
 use rust_i18n::t;
 
 use cie_firma::{Align, Facts, Piece, Vertical};
 
+use crate::icon;
 use crate::state::{Message, State};
 use crate::theme;
 
@@ -31,14 +32,14 @@ pub fn panel(state: &State, selected: Option<usize>) -> Element<'_, Message> {
         row![
             palette(),
             column![
+                toolbar(state, selected),
                 container(board(state, selected))
                     .style(theme::desk)
                     .padding(16)
                     .width(Fill)
                     .height(Fill),
-                properties(state, selected),
             ]
-            .spacing(12)
+            .spacing(6)
             .width(Fill),
         ]
         .spacing(16)
@@ -87,10 +88,17 @@ fn header(state: &State) -> Element<'_, Message> {
                 .padding(7)
                 .width(Length::Fixed(220.0)),
             space::horizontal(),
-            small(t!("template.add"), Some(Message::TemplateAdded)),
-            small(t!("template.duplicate"), Some(Message::TemplateDuplicated)),
-            small(
+            chooser(icon::ADD, t!("template.add"), false, Some(Message::TemplateAdded)),
+            chooser(
+                icon::DUPLICATE,
+                t!("template.duplicate"),
+                false,
+                Some(Message::TemplateDuplicated)
+            ),
+            chooser(
+                icon::REMOVE,
                 t!("template.delete"),
+                false,
                 removable.then_some(Message::TemplateDeleted)
             ),
         ]
@@ -189,91 +197,173 @@ fn board(state: &State, selected: Option<usize>) -> Element<'_, Message> {
 }
 
 /// What can be changed about the piece under the pointer.
-fn properties(state: &State, selected: Option<usize>) -> Element<'_, Message> {
-    let Some(placed) = selected.and_then(|i| state.settings.active().pieces.get(i)) else {
-        return text(t!("template.nothing_selected"))
-            .size(12)
-            .style(iced::widget::text::secondary)
-            .into();
+///
+/// A fixed row above the box rather than a panel below it. Below, it appeared
+/// and disappeared with the selection and the box resized under the hand that
+/// was dragging something in it; here the row is always the same height and
+/// the controls that do not apply are simply dead.
+fn toolbar(state: &State, selected: Option<usize>) -> Element<'_, Message> {
+    let placed = selected.and_then(|i| state.settings.active().pieces.get(i));
+    let picture = placed.is_some_and(|p| p.piece == Piece::Image);
+
+    // Across the rectangle, which every piece has an opinion about.
+    let across = |glyph, align: Align, label| {
+        chooser(
+            glyph,
+            label,
+            placed.is_some_and(|p| p.align == align),
+            placed.map(|_| Message::PieceAligned(align)),
+        )
     };
 
-    let picture = placed.piece == Piece::Image;
-    let mut controls = row![].spacing(10).align_y(Alignment::Center);
+    // Up and down it, which only the picture does. See `cie_firma::Vertical`.
+    //
+    // Lit only when it also applies: a text piece carries a value on this axis
+    // and nothing reads it, so showing it lit would say a setting is in force
+    // when it does nothing at all.
+    let up = |glyph, vertical: Vertical, label| {
+        chooser(
+            glyph,
+            label,
+            picture && placed.is_some_and(|p| p.vertical == vertical),
+            picture.then_some(Message::PieceRaised(vertical)),
+        )
+    };
 
-    // A picture is sized by its rectangle, so type and weight would be
-    // controls that do nothing to it. Alignment is not one of those: it is the
-    // only thing that says where in that rectangle the picture ends up.
-    if !picture {
-        controls = controls
-            .push(text(t!("template.size")).size(12))
-            .push(
-                text_input("", &format!("{:.1}", placed.size))
-                    .on_input(|raw| {
-                        Message::PieceResized(raw.parse().unwrap_or(placed.size))
-                    })
-                    .style(theme::field)
-                    .size(13)
-                    .padding(6)
-                    .width(Length::Fixed(56.0)),
-            )
-            .push(
-                checkbox(placed.bold)
-                    .label(t!("template.bold").into_owned())
-                    .on_toggle(Message::PieceBoldToggled)
-                    .size(14)
-                    .text_size(12),
-            );
-    }
-
-    controls = controls.push(
-        pick_list(Side::ALL.to_vec(), Some(Side(placed.align)), |s| {
-            Message::PieceAligned(s.0)
-        })
-        .text_size(12)
-        .padding(6),
-    );
-
-    // Only the picture has room left over up and down its rectangle: a line
-    // hangs from the top of its own, and you move the rectangle to move it.
-    if picture {
-        controls = controls.push(
-            pick_list(Level::ALL.to_vec(), Some(Level(placed.vertical)), |l| {
-                Message::PieceRaised(l.0)
-            })
-            .text_size(12)
-            .padding(6),
-        );
-    }
-
-    let mut body = column![controls].spacing(8);
-
-    if let Piece::Text { content } = &placed.piece {
-        body = body.push(
-            row![
-                text(t!("template.content")).size(12),
-                text_input("", content)
-                    .on_input(Message::PieceTextChanged)
-                    .style(theme::field)
-                    .size(13)
-                    .padding(6),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-        );
-    }
-
-    container(
-        body.push(
-            row![
-                space::horizontal(),
-                small(t!("template.remove_piece"), Some(Message::PieceRemoved)),
-            ]
-            .align_y(Alignment::Center),
+    let mut bar = row![
+        across(icon::ALIGN_LEFT, Align::Left, t!("template.left")),
+        across(icon::ALIGN_CENTRE, Align::Centre, t!("template.centre")),
+        across(icon::ALIGN_RIGHT, Align::Right, t!("template.right")),
+        separator(),
+        up(icon::ALIGN_TOP, Vertical::Top, t!("template.top")),
+        up(icon::ALIGN_MIDDLE, Vertical::Middle, t!("template.middle")),
+        up(icon::ALIGN_BOTTOM, Vertical::Bottom, t!("template.bottom")),
+        separator(),
+        chooser(
+            icon::BOLD,
+            t!("template.bold"),
+            !picture && placed.is_some_and(|p| p.bold),
+            placed
+                .filter(|p| p.piece != Piece::Image)
+                .map(|p| Message::PieceBoldToggled(!p.bold)),
         ),
+    ]
+    .spacing(2)
+    .align_y(Alignment::Center);
+
+    // The type size is a number, and a number wants a field. The picture is
+    // sized by its rectangle, so it gets neither this nor the weight above.
+    let size = placed.filter(|p| p.piece != Piece::Image);
+    bar = bar
+        .push(
+            tip(
+                text(icon::SIZE.to_string())
+                    .font(icon::FONT)
+                    .size(15)
+                    .style(if size.is_some() {
+                        iced::widget::text::default
+                    } else {
+                        iced::widget::text::secondary
+                    }),
+                t!("template.size"),
+            )
+        )
+        .push(
+            text_input("", &size.map(|p| format!("{:.1}", p.size)).unwrap_or_default())
+                .on_input_maybe(size.map(|p| {
+                    let current = p.size;
+                    move |raw: String| Message::PieceResized(raw.parse().unwrap_or(current))
+                }))
+                .style(theme::field)
+                .size(13)
+                .padding(6)
+                .width(Length::Fixed(56.0)),
+        );
+
+    // Only free text has words of its own; everything else says what the card
+    // says. The field is there either way so the row keeps its shape.
+    let free = placed.and_then(|p| match &p.piece {
+        Piece::Text { content } => Some(content.clone()),
+        _ => None,
+    });
+    bar = bar
+        .push(separator())
+        .push(
+            text_input(&t!("template.content"), free.as_deref().unwrap_or(""))
+                .on_input_maybe(free.as_ref().map(|_| Message::PieceTextChanged))
+                .style(theme::field)
+                .size(13)
+                .padding(6),
+        )
+        .push(chooser(
+            icon::REMOVE,
+            t!("template.remove_piece"),
+            false,
+            placed.map(|_| Message::PieceRemoved),
+        ));
+
+    container(bar).padding([6, 8]).width(Fill).into()
+}
+
+/// An icon button that shows whether what it stands for is in force.
+///
+/// `None` for the message greys it out, which is how the row says a control
+/// does not apply to what is selected — or that nothing is.
+fn chooser<'a>(
+    glyph: char,
+    label: std::borrow::Cow<'a, str>,
+    chosen: bool,
+    message: Option<Message>,
+) -> Element<'a, Message> {
+    let face = button(
+        text(glyph.to_string())
+            .font(icon::FONT)
+            .size(15)
+            .align_x(Alignment::Center),
     )
-    .style(theme::card)
-    .padding(12)
-    .width(Fill)
+    .style(if chosen { theme::tool_chosen } else { theme::tool })
+    .padding([6, 8])
+    .width(Length::Fixed(32.0))
+    .on_press_maybe(message);
+
+    tip(face, label)
+}
+
+/// An icon says nothing to somebody who has not met it. Every one of these
+/// carries the words it stands for, a moment behind.
+fn tip<'a>(
+    control: impl Into<Element<'a, Message>>,
+    label: std::borrow::Cow<'a, str>,
+) -> Element<'a, Message> {
+    tooltip(
+        control,
+        container(text(label.into_owned()).size(12))
+            .style(theme::floating)
+            .padding([4, 8]),
+        tooltip::Position::Bottom,
+    )
+    .into()
+}
+
+/// A hairline between two groups of controls.
+///
+/// Two containers, not one: a background paints a container's padding too, so
+/// the line and the room around it have to be separate boxes or the rule comes
+/// out a grey block as wide as its own margins.
+fn separator<'a>() -> Element<'a, Message> {
+    container(
+        container(space::vertical())
+            .width(Length::Fixed(1.0))
+            .height(Length::Fixed(18.0))
+            .style(|t: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color {
+                    a: 0.25,
+                    ..t.extended_palette().background.base.text
+                })),
+                ..Default::default()
+            }),
+    )
+    .padding([0, 6])
     .into()
 }
 
@@ -329,47 +419,6 @@ fn small<'a>(
         .style(theme::quiet)
         .on_press_maybe(message)
         .into()
-}
-
-/// `pick_list` needs `Display`, and `Align` lives in `cie-firma`, which has no
-/// business knowing what language the window speaks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Side(Align);
-
-impl Side {
-    const ALL: [Side; 3] = [Side(Align::Left), Side(Align::Centre), Side(Align::Right)];
-}
-
-impl std::fmt::Display for Side {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&match self.0 {
-            Align::Left => t!("template.left"),
-            Align::Centre => t!("template.centre"),
-            Align::Right => t!("template.right"),
-        })
-    }
-}
-
-/// The other axis, and only the picture offers it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Level(Vertical);
-
-impl Level {
-    const ALL: [Level; 3] = [
-        Level(Vertical::Top),
-        Level(Vertical::Middle),
-        Level(Vertical::Bottom),
-    ];
-}
-
-impl std::fmt::Display for Level {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&match self.0 {
-            Vertical::Top => t!("template.top"),
-            Vertical::Middle => t!("template.middle"),
-            Vertical::Bottom => t!("template.bottom"),
-        })
-    }
 }
 
 /// `pick_list` needs `Display`; a template has a name but no opinion on lists.
