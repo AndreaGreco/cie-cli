@@ -4,13 +4,15 @@
 //! those into a `/Rect` in PDF points is `preview::to_pdf_rect`'s job, and it
 //! is the one place that knows about `/Rotate` and the crop box.
 
+use iced::keyboard;
 use iced::mouse;
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke};
-use iced::{Color, Element, Fill, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Element, Fill, Point, Rectangle, Renderer, Size, Theme};
 
 use cie_firma::Drawn;
 
 use crate::preview::{Document, Grab, move_stamp, resize_stamp};
+use crate::snap::{self, Anchors};
 use crate::state::Message;
 use crate::view::board::{self, Art};
 
@@ -27,13 +29,15 @@ pub fn canvas(
     stamp: [f32; 4],
     pieces: Vec<Drawn>,
     art: Option<Art>,
+    paper: board::Paper,
 ) -> Element<'static, Message> {
     canvas::Canvas::new(Stamp {
         ratio: document.aspect_ratio(page),
-        page_width_pt: document.display_size(page).0,
+        page_size_pt: document.display_size(page),
         stamp,
         pieces,
         art,
+        paper,
     })
     .width(Fill)
     .height(Fill)
@@ -42,13 +46,18 @@ pub fn canvas(
 
 struct Stamp {
     ratio: f32,
-    page_width_pt: f32,
+    /// The page as displayed, in PDF points. Both numbers earn their keep: the
+    /// width scales the type, and the margins the box latches on to are a real
+    /// distance rather than a fraction of whatever sheet this is.
+    page_size_pt: (f32, f32),
     stamp: [f32; 4],
     /// The active template, already resolved: the words that will be printed,
     /// not the names of the pieces that produce them.
     pieces: Vec<Drawn>,
     /// The scan of a handwritten signature the template carries, if any.
     art: Option<Art>,
+    /// What the template says goes behind the stamp.
+    paper: board::Paper,
 }
 
 /// What the pointer is holding, and where it was last seen.
@@ -56,6 +65,10 @@ struct Stamp {
 struct Dragging {
     grab: Option<Grab>,
     last: Option<Point>,
+    /// The lines the box is sitting on, to draw while it is held.
+    guides: (Vec<f32>, Vec<f32>),
+    /// Alt puts the box down where it is put, snapping or not.
+    free: bool,
 }
 
 impl Stamp {
@@ -135,23 +148,47 @@ impl canvas::Program<Message> for Stamp {
                 let p = local(cursor.position()?);
                 let previous = state.last.replace(p)?;
 
-                let moved = match grab {
-                    Grab::Body => move_stamp(
-                        self.stamp,
-                        (p.x - previous.x) / page.width,
-                        (p.y - previous.y) / page.height,
-                    ),
-                    Grab::Corner(i) => resize_stamp(
-                        self.stamp,
-                        i,
-                        ((p.x - page.x) / page.width, (p.y - page.y) / page.height),
-                    ),
+                let anchors = Anchors::page(self.page_size_pt);
+                let reach = if state.free {
+                    (0.0, 0.0)
+                } else {
+                    (
+                        snap::REACH_PX / page.width.max(1.0),
+                        snap::REACH_PX / page.height.max(1.0),
+                    )
                 };
+
+                let moved = match grab {
+                    Grab::Body => {
+                        let dragged = move_stamp(
+                            self.stamp,
+                            (p.x - previous.x) / page.width,
+                            (p.y - previous.y) / page.height,
+                        );
+                        let (dx, dy) = snap::slide(dragged, &anchors, reach);
+                        move_stamp(dragged, dx, dy)
+                    }
+                    Grab::Corner(i) => {
+                        let at = snap::point(
+                            ((p.x - page.x) / page.width, (p.y - page.y) / page.height),
+                            &anchors,
+                            reach,
+                        );
+                        resize_stamp(self.stamp, i, at)
+                    }
+                };
+
+                state.guides = snap::touching(moved, &anchors);
                 Some(canvas::Action::publish(Message::StampChanged(moved)))
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.grab = None;
                 state.last = None;
+                state.guides = (Vec::new(), Vec::new());
+                None
+            }
+            iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.free = modifiers.alt();
                 None
             }
             _ => None,
@@ -160,7 +197,7 @@ impl canvas::Program<Message> for Stamp {
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
@@ -174,10 +211,15 @@ impl canvas::Program<Message> for Stamp {
         // every frame costs more than it saves.
         let mut frame = Frame::new(renderer, bounds.size());
 
+        // The paper first, exactly as the template asks for it: a transparent
+        // stamp has to look transparent here, or the one thing this preview is
+        // for — knowing what the page will look like — is the thing it gets
+        // wrong.
+        board::paper(&mut frame, boxed, self.paper);
+
+        // Then the handle: the dashed-free outline and the grips are ours, not
+        // the document's, and they are drawn whatever the paper is doing.
         let path = Path::rectangle(Point::new(boxed.x, boxed.y), boxed.size());
-        // Nearly opaque rather than opaque: enough to read the mock-up, enough
-        // to still see what of the page is about to be covered.
-        frame.fill(&path, Color { a: 0.92, ..Color::WHITE });
         frame.stroke(&path, Stroke::default().with_width(1.5).with_color(accent));
 
         for c in self.corners(page) {
@@ -198,8 +240,12 @@ impl canvas::Program<Message> for Stamp {
             boxed,
             &self.pieces,
             self.art.as_ref(),
-            (self.stamp[2] - self.stamp[0]) * self.page_width_pt,
+            (self.stamp[2] - self.stamp[0]) * self.page_size_pt.0,
         );
+
+        // The guides span the page, not the box: what they are saying is where
+        // the box has landed on the sheet.
+        board::guides(&mut frame, page, &state.guides, accent);
 
         vec![frame.into_geometry()]
     }

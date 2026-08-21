@@ -219,6 +219,15 @@ template:
   remove_piece:
     it: Togli dal riquadro
     en: Remove from the box
+  background:
+    it: Sfondo bianco
+    en: White background
+  border:
+    it: Bordo
+    en: Border
+  paper_hint:
+    it: Senza sfondo il documento si vede attraverso il riquadro.
+    en: With no background the document shows through the box.
   picture:
     it: Immagine
     en: Picture

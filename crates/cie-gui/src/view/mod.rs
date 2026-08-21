@@ -150,6 +150,10 @@ fn page(state: &State) -> Element<'_, Message> {
         handle: s.handle.clone(),
         ratio: s.image.aspect_ratio(),
     });
+    let paper = board::Paper {
+        background: state.settings.active().background,
+        border: state.settings.active().border,
+    };
 
     // `responsive` reports the room actually left, which is what "fits the
     // window" has to mean. It sits outside the scrollable on purpose: inside,
@@ -180,6 +184,7 @@ fn page(state: &State) -> Element<'_, Message> {
                 stamp,
                 pieces.clone(),
                 art.clone(),
+                paper,
             ));
         }
 

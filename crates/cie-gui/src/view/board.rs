@@ -33,18 +33,29 @@ pub struct Art {
     pub ratio: f32,
 }
 
+/// What the template puts behind the stamp.
+#[derive(Debug, Clone, Copy)]
+pub struct Paper {
+    /// White paper, or the document showing through.
+    pub background: bool,
+    /// A hairline around the box.
+    pub border: bool,
+}
+
 /// The box as the editor shows it.
 pub fn canvas(
     pieces: Vec<Drawn>,
     selected: Option<usize>,
     picture: Option<Art>,
     size_pt: (f32, f32),
+    paper: Paper,
 ) -> Element<'static, Message> {
     canvas::Canvas::new(Board {
         pieces,
         selected,
         picture,
         size_pt,
+        paper,
     })
     .width(Fill)
     .height(Fill)
@@ -60,6 +71,7 @@ struct Board {
     /// The box in PDF points: its shape, and the scale every type size is
     /// measured against.
     size_pt: (f32, f32),
+    paper: Paper,
 }
 
 #[derive(Default)]
@@ -249,16 +261,7 @@ impl canvas::Program<Message> for Board {
         let accent = theme.extended_palette().primary.base.color;
         let mut frame = Frame::new(renderer, bounds.size());
 
-        // The box itself: white paper with a hairline, the way underskrift
-        // draws it into the PDF.
-        let sheet = Path::rectangle(Point::new(boxed.x, boxed.y), boxed.size());
-        frame.fill(&sheet, Color::WHITE);
-        frame.stroke(
-            &sheet,
-            Stroke::default()
-                .with_width(1.0)
-                .with_color(Color::from_rgb(0.6, 0.6, 0.6)),
-        );
+        paper(&mut frame, boxed, self.paper);
 
         paint(&mut frame, boxed, &self.pieces, self.picture.as_ref(), self.size_pt.0);
 
@@ -317,12 +320,34 @@ impl canvas::Program<Message> for Board {
     }
 }
 
+/// What goes behind the stamp, as the template asks for it.
+///
+/// Both halves are the document's, not the interface's: they are drawn into
+/// the PDF by underskrift and have to look here the way they will look there.
+/// A transparent stamp that the preview draws on white paper would hide the
+/// one thing worth knowing before putting a box over a paragraph.
+pub fn paper(frame: &mut Frame, boxed: Rectangle, paper: Paper) {
+    let sheet = Path::rectangle(Point::new(boxed.x, boxed.y), boxed.size());
+
+    if paper.background {
+        frame.fill(&sheet, Color::WHITE);
+    }
+    if paper.border {
+        frame.stroke(
+            &sheet,
+            Stroke::default()
+                .with_width(1.0)
+                .with_color(Color::from_rgb(0.2, 0.2, 0.2)),
+        );
+    }
+}
+
 /// The lines the piece in hand is sitting on, drawn right across the box.
 ///
 /// Across the whole box rather than just between the two pieces: what the
 /// guide is saying is "this line", and a stub between two rectangles leaves
 /// you working out which line it meant.
-fn guides(frame: &mut Frame, boxed: Rectangle, (xs, ys): &(Vec<f32>, Vec<f32>), accent: Color) {
+pub fn guides(frame: &mut Frame, boxed: Rectangle, (xs, ys): &(Vec<f32>, Vec<f32>), accent: Color) {
     // Dashed, and that is the point: solid, a guide running along the selected
     // piece's own edge would be indistinguishable from its outline, which is
     // exactly where guides most often are. A dash reads as a guide without

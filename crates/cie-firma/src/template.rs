@@ -134,6 +134,26 @@ pub struct Template {
     /// here: this type stays plain data that survives a settings file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<PathBuf>,
+
+    /// White paper behind the stamp.
+    ///
+    /// Off, the document shows through, which is what a scan of a handwritten
+    /// signature usually wants: ink on the page rather than a label stuck over
+    /// it. It also means whatever the box covers stays readable — worth
+    /// knowing before putting one over a paragraph.
+    #[serde(default = "yes")]
+    pub background: bool,
+    /// A hairline around the box. Separate from the paper: a stamp can want
+    /// the document showing through and still want an edge, or neither.
+    #[serde(default = "yes")]
+    pub border: bool,
+}
+
+/// Templates written before there was anything to say about paper had both.
+/// Defaulting these to `false` would quietly strip the box off every stamp
+/// anybody had already composed.
+fn yes() -> bool {
+    true
 }
 
 impl Template {
@@ -154,6 +174,8 @@ impl Template {
                 Placed::line(Piece::Reason, [0.04, 0.76, 0.96, 0.92], 7.0),
             ],
             image: None,
+            background: true,
+            border: true,
         }
     }
 
@@ -172,6 +194,8 @@ impl Template {
                 Placed::line(Piece::Date, [0.44, 0.70, 0.98, 0.88], 6.5),
             ],
             image: Some(image),
+            background: true,
+            border: true,
         }
     }
 
@@ -633,6 +657,8 @@ mod tests {
                     align,
                 }],
                 image: None,
+                background: true,
+                border: true,
             };
             let content = String::from_utf8(render(&template, None).content).unwrap();
             let tm = content.lines().find(|l| l.ends_with(" Tm")).unwrap().to_string();
@@ -693,5 +719,37 @@ mod tests {
     fn nothing_is_no_wide() {
         let placed = Placed::line(Piece::Reason, [0.0, 0.0, 1.0, 1.0], 8.0);
         assert_eq!(placed.width_of(""), 0.0);
+    }
+
+    /// A template written before there was anything to say about paper had
+    /// white paper and an edge. Reading one back must not quietly strip the
+    /// box off a stamp somebody had already composed.
+    #[test]
+    fn a_template_from_before_the_paper_setting_keeps_its_box() {
+        let old = r#"{
+            "name": "vecchio",
+            "pieces": [
+                {"piece": {"kind": "holder"}, "rect": [0.0, 0.0, 1.0, 0.5],
+                 "size": 9.0, "bold": true, "align": "left"}
+            ]
+        }"#;
+
+        let template: Template = serde_json::from_str(old).unwrap();
+        assert!(template.background, "the paper went missing");
+        assert!(template.border, "the edge went missing");
+    }
+
+    /// Turning the paper off has to reach the PDF, not just the preview.
+    #[test]
+    fn a_transparent_template_says_so() {
+        let mut template = Template::classic("x");
+        assert!(template.background && template.border);
+
+        template.background = false;
+        template.border = false;
+
+        let raw = serde_json::to_string(&template).unwrap();
+        let back: Template = serde_json::from_str(&raw).unwrap();
+        assert!(!back.background && !back.border);
     }
 }

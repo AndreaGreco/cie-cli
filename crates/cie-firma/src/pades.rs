@@ -96,6 +96,15 @@ pub fn sign_pdf(pdf: &[u8], signer: &dyn CryptoSigner, options: &PadesOptions) -
     let holder =
         DatiTitolare::from_certificate_der(signer.certificate_der()).unwrap_or_default();
 
+    // What sits behind the stamp. The block of lines has always been white
+    // paper with an edge; a template says for itself, because a scan of a
+    // handwritten signature wants the document showing through rather than a
+    // label stuck over it.
+    let (background, border) = match &options.stamp {
+        Stamp::Lines { .. } => (true, true),
+        Stamp::Composed { template, .. } => (template.background, template.border),
+    };
+
     let layout = match &options.stamp {
         Stamp::Lines { image, layout } => {
             let text = TextConfig {
@@ -129,8 +138,8 @@ pub fn sign_pdf(pdf: &[u8], signer: &dyn CryptoSigner, options: &PadesOptions) -
             page: options.page,
             rect: SignatureRect::Absolute { llx, lly, urx, ury },
             layout,
-            background_color: Some(Color::white()),
-            border: Some(Border::default()),
+            background_color: background.then(Color::white),
+            border: border.then(Border::default),
         }),
         ..Default::default()
     };
@@ -286,6 +295,37 @@ mod tests {
 
         assert!(!text.contains("/Subtype /Image"));
         assert!(text.contains("/BaseFont"), "the lines went with the picture");
+    }
+
+    /// A transparent template must leave the paper out of the PDF. Drawn
+    /// anyway, it would be a white rectangle over whatever the box covers —
+    /// the one thing somebody who turned it off was trying to avoid.
+    #[test]
+    fn a_transparent_template_paints_no_paper() {
+        let opaque = Template::classic("opaco");
+        let mut clear = Template::classic("trasparente");
+        clear.background = false;
+        clear.border = false;
+
+        let signed = |template| {
+            let options = PadesOptions {
+                stamp: Stamp::Composed { template, image: None },
+                ..Default::default()
+            };
+            let out = sign_pdf(MINIMAL_PDF, &fake_signer(), &options).unwrap();
+            String::from_utf8_lossy(&out).into_owned()
+        };
+
+        // `re f` fills the rectangle, `re S` strokes it. The opaque one does
+        // both; the transparent one must do neither.
+        let with = signed(opaque);
+        assert!(with.contains(" re f"), "the opaque stamp lost its paper");
+        assert!(with.contains(" re S"), "the opaque stamp lost its edge");
+
+        let without = signed(clear);
+        assert!(!without.contains(" re f"), "paper drawn on a transparent stamp");
+        assert!(!without.contains(" re S"), "an edge drawn on a transparent stamp");
+        assert!(without.contains("/BaseFont"), "the lines went with the paper");
     }
 
     /// Picture-only means picture only: none of the text belongs in a stamp

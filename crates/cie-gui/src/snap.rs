@@ -20,6 +20,14 @@
 /// into fractions against the box's size on screen, not stored as one.
 pub const REACH_PX: f32 = 6.0;
 
+/// How far in from the paper's edge the margin lines sit.
+///
+/// Nobody puts a signature flush against the edge of the sheet, so the edges
+/// alone are poor anchors. Twenty millimetres is the margin most documents
+/// that arrive here turn out to have; it is a line offered, not imposed, and
+/// Alt or simply staying away from it ignores it.
+const MARGIN_MM: f32 = 20.0;
+
 /// Two coordinates are the same line when they are this close, in fractions.
 ///
 /// Loose enough to survive the rounding that clamping a rectangle does on the
@@ -56,6 +64,37 @@ impl Anchors {
             anchors.x.extend([*x0, (x0 + x1) / 2.0, *x1]);
             anchors.y.extend([*y0, (y0 + y1) / 2.0, *y1]);
         }
+
+        anchors.x = collapse(anchors.x);
+        anchors.y = collapse(anchors.y);
+        anchors
+    }
+}
+
+impl Anchors {
+    /// The lines a signature box can latch on to on a page: the edges of the
+    /// paper, its middle, and a margin's width in from each edge.
+    ///
+    /// The margin is worked out from the page's real size, so it is the same
+    /// distance on an A4 and on a US Letter rather than the same fraction of
+    /// two different sheets.
+    pub fn page(size_pt: (f32, f32)) -> Self {
+        let margin = MARGIN_MM * 72.0 / 25.4;
+        let (mx, my) = (
+            margin / size_pt.0.max(1.0),
+            margin / size_pt.1.max(1.0),
+        );
+
+        // A margin wider than half the sheet is not a margin. Better to offer
+        // the edges alone than lines that cross each other.
+        let inset = |m: f32| if m < 0.5 { vec![m, 1.0 - m] } else { Vec::new() };
+
+        let mut anchors = Self {
+            x: vec![0.0, 0.5, 1.0],
+            y: vec![0.0, 0.5, 1.0],
+        };
+        anchors.x.extend(inset(mx));
+        anchors.y.extend(inset(my));
 
         anchors.x = collapse(anchors.x);
         anchors.y = collapse(anchors.y);
@@ -287,5 +326,31 @@ mod tests {
         let (x, _) = touching([0.5, 0.0, 0.5, 0.1], &anchors);
 
         assert_eq!(x, vec![0.5]);
+    }
+
+    /// A page offers its edges, its middle and its margins, and the margins
+    /// are a real distance rather than a fraction: the same twenty
+    /// millimetres on any sheet.
+    #[test]
+    fn a_page_offers_its_margins_in_millimetres() {
+        // A4, in points.
+        let a4 = Anchors::page((595.0, 842.0));
+        let expected = 20.0 * 72.0 / 25.4;
+
+        assert!((a4.x[3] * 595.0 - expected).abs() < 0.01, "{:?}", a4.x);
+        assert!((a4.y[3] * 842.0 - expected).abs() < 0.01, "{:?}", a4.y);
+
+        // The same margin on a taller sheet is a smaller fraction of it.
+        let long = Anchors::page((595.0, 1684.0));
+        assert!(long.y[3] < a4.y[3], "{:?} {:?}", long.y, a4.y);
+    }
+
+    /// A sheet too small to have that margin gets its edges and nothing else,
+    /// rather than margin lines that have crossed over each other.
+    #[test]
+    fn a_sheet_smaller_than_its_margins_keeps_only_its_edges() {
+        let stamp = Anchors::page((40.0, 40.0));
+        assert_eq!(stamp.x, vec![0.0, 0.5, 1.0]);
+        assert_eq!(stamp.y, vec![0.0, 0.5, 1.0]);
     }
 }

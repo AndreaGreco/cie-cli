@@ -96,6 +96,26 @@ fn header(state: &State) -> Element<'_, Message> {
         ]
         .spacing(8)
         .align_y(Alignment::Center),
+        // What goes behind the stamp is the template's, not the piece's, so it
+        // belongs up here with the name rather than in the panel that changes
+        // whatever happens to be selected.
+        row![
+            checkbox(state.settings.active().background)
+                .label(t!("template.background").into_owned())
+                .on_toggle(Message::TemplateBackgroundToggled)
+                .size(14)
+                .text_size(12),
+            checkbox(state.settings.active().border)
+                .label(t!("template.border").into_owned())
+                .on_toggle(Message::TemplateBorderToggled)
+                .size(14)
+                .text_size(12),
+            text(t!("template.paper_hint"))
+                .size(11)
+                .style(iced::widget::text::secondary),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center),
     ]
     .spacing(10)
     .into()
@@ -161,6 +181,10 @@ fn board(state: &State, selected: Option<usize>) -> Element<'_, Message> {
             ratio: s.image.aspect_ratio(),
         }),
         state.box_size_pt().unwrap_or(DEFAULT_BOX_PT),
+        super::board::Paper {
+            background: state.settings.active().background,
+            border: state.settings.active().border,
+        },
     )
 }
 

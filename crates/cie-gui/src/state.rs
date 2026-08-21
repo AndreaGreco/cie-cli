@@ -80,6 +80,8 @@ pub enum Message {
     TemplateDuplicated,
     TemplateDeleted,
     TemplateRenamed(String),
+    TemplateBackgroundToggled(bool),
+    TemplateBorderToggled(bool),
     /// Pick the picture for the template being edited.
     ChooseSignatureImage,
     SignatureImageChosen(Option<PathBuf>),
@@ -427,6 +429,14 @@ impl State {
             Message::TemplateDeleted => {}
             Message::TemplateRenamed(name) => {
                 self.settings.active_mut().name = name;
+                self.save_settings();
+            }
+            Message::TemplateBackgroundToggled(on) => {
+                self.settings.active_mut().background = on;
+                self.save_settings();
+            }
+            Message::TemplateBorderToggled(on) => {
+                self.settings.active_mut().border = on;
                 self.save_settings();
             }
 
