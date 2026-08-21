@@ -15,7 +15,7 @@ use iced::{Color, Element, Fill, Pixels, Point, Rectangle, Renderer, Size, Theme
 use cie_firma::{Drawn, Ink, Vertical};
 
 use crate::preview::{move_stamp, resize_stamp, Grab};
-use crate::snap::{self, Anchors};
+use crate::snap::{self, Anchors, Drag};
 use crate::state::Message;
 use crate::theme;
 
@@ -78,6 +78,10 @@ struct Board {
 struct Dragging {
     grab: Option<Grab>,
     last: Option<Point>,
+    /// Where the piece would be with nothing to latch on to. Only a body drag
+    /// needs it: a corner already follows the pointer's own position, so it
+    /// was never glued the way a body was.
+    travel: Option<Drag>,
     /// The lines the piece is currently sitting on, to draw while it is held.
     /// Kept here rather than worked out again in `draw`, which does not know
     /// what was dragged or where it came from.
@@ -180,6 +184,10 @@ impl canvas::Program<Message> for Board {
 
                 state.grab = found.map(|(_, grab)| grab);
                 state.last = Some(p);
+                state.travel = found
+                    .filter(|(_, grab)| *grab == Grab::Body)
+                    .and_then(|(index, _)| self.pieces.get(index))
+                    .map(|d| Drag::from(d.placed.rect));
 
                 // A press on nothing clears the selection, which is how you
                 // put the properties panel away without deleting anything.
@@ -203,18 +211,18 @@ impl canvas::Program<Message> for Board {
                 };
 
                 let moved = match grab {
-                    Grab::Body => {
-                        let dragged = move_stamp(
-                            rect,
+                    // `move_stamp` goes in as the thing that keeps a piece
+                    // inside the box, so the clamping has the last word over
+                    // the latching either way.
+                    Grab::Body => state.travel.as_mut()?.slide(
+                        (
                             (p.x - previous.x) / boxed.width,
                             (p.y - previous.y) / boxed.height,
-                        );
-                        // Snapped after the drag rather than folded into it,
-                        // so the clamping that keeps a piece in the box has
-                        // the last word over the latching.
-                        let (dx, dy) = snap::slide(dragged, &anchors, reach);
-                        move_stamp(dragged, dx, dy)
-                    }
+                        ),
+                        &anchors,
+                        reach,
+                        move_stamp,
+                    ),
                     Grab::Corner(corner) => {
                         let at = snap::point(
                             (
@@ -234,6 +242,7 @@ impl canvas::Program<Message> for Board {
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.grab = None;
                 state.last = None;
+                state.travel = None;
                 // The guides belong to the drag. Left up, they would be a set
                 // of lines pointing at nothing.
                 state.guides = (Vec::new(), Vec::new());

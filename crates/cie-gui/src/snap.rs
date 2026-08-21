@@ -18,7 +18,15 @@
 /// A gesture, not a measurement. The hand has to be within the same distance
 /// of a line however large the box is drawn on screen, so this is converted
 /// into fractions against the box's size on screen, not stored as one.
-pub const REACH_PX: f32 = 6.0;
+///
+/// Four rather than six, and the difference is all on the vertical axis. Five
+/// stacked lines put twelve anchors down a box only a couple of hundred pixels
+/// tall — a median gap of about sixteen pixels — so at six the reaches almost
+/// touch and less than half the box is somewhere a piece can simply be left.
+/// At four it is over half. Across the box it hardly matters either way: the
+/// lines there share edges, so they collapse to five anchors and nine tenths
+/// of the width is free at any of these numbers.
+pub const REACH_PX: f32 = 4.0;
 
 /// How far in from the paper's edge the margin lines sit.
 ///
@@ -155,6 +163,48 @@ fn nearest(coordinates: &[f32], anchors: &[f32], reach: f32) -> f32 {
         }
     }
     best
+}
+
+/// A rectangle being dragged, and where it would be if nothing had latched
+/// on to anything.
+///
+/// The two positions are the whole of being able to come off a line again.
+/// Sliding the *latched* rectangle and latching the result means every small
+/// move is undone by the same line that caught it: the pointer walks away and
+/// the rectangle stays, and it only ever comes off if a single frame of the
+/// drag clears the reach in one go — which, with a hand on a mouse, it never
+/// does. So the drag is accumulated on a position nothing has touched, and the
+/// latching is worked out from that each time.
+#[derive(Debug, Clone, Copy)]
+pub struct Drag {
+    free: [f32; 4],
+}
+
+impl Drag {
+    /// Starts a drag from where the rectangle is now.
+    pub fn from(rect: [f32; 4]) -> Self {
+        Self { free: rect }
+    }
+
+    /// Slides by a fraction of the box and says where the rectangle should be
+    /// drawn: on a line when one is within reach of where it truly is, and
+    /// where the hand put it once it is not.
+    ///
+    /// `keep` is what stops a rectangle leaving the box — `preview::move_stamp`
+    /// in every caller, passed in so this module keeps knowing nothing about
+    /// pages and stamps.
+    pub fn slide(
+        &mut self,
+        (dx, dy): (f32, f32),
+        anchors: &Anchors,
+        reach: (f32, f32),
+        keep: impl Fn([f32; 4], f32, f32) -> [f32; 4],
+    ) -> [f32; 4] {
+        self.free = keep(self.free, dx, dy);
+
+        let (sx, sy) = slide(self.free, anchors, reach);
+        keep(self.free, sx, sy)
+    }
 }
 
 /// The anchors a rectangle is actually sitting on.
@@ -352,5 +402,88 @@ mod tests {
         let stamp = Anchors::page((40.0, 40.0));
         assert_eq!(stamp.x, vec![0.0, 0.5, 1.0]);
         assert_eq!(stamp.y, vec![0.0, 0.5, 1.0]);
+    }
+
+    /// The bug this whole type exists for: a piece that latched on to a line
+    /// could not be pulled off it. Sliding the latched rectangle and latching
+    /// the result undid every small move, so the pointer walked away and the
+    /// piece stayed put.
+    #[test]
+    fn a_piece_can_be_pulled_off_a_line() {
+        let anchors = Anchors {
+            x: vec![0.5],
+            y: vec![],
+        };
+        let reach = (0.02, 0.02);
+        let free = |r: [f32; 4], dx: f32, dy: f32| [r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy];
+
+        let mut drag = Drag::from([0.5, 0.0, 0.6, 0.1]);
+
+        // A nudge well inside the reach: it stays on the line, as it should.
+        assert_eq!(drag.slide((0.005, 0.0), &anchors, reach, free)[0], 0.5);
+
+        // The same nudge over and over. Each one on its own is inside the
+        // reach — that is exactly what used to glue it down — but they add up
+        // on the free position, and past the reach the piece comes away.
+        let mut at = [0.0; 4];
+        for _ in 0..5 {
+            at = drag.slide((0.005, 0.0), &anchors, reach, free);
+        }
+        assert!(at[0] > 0.52, "still stuck to the line at {}", at[0]);
+    }
+
+    /// And having come off, it goes on following the hand rather than being
+    /// dragged back the moment it passes the line again from the far side.
+    #[test]
+    fn a_piece_that_came_off_keeps_going() {
+        let anchors = Anchors {
+            x: vec![0.5],
+            y: vec![],
+        };
+        let reach = (0.02, 0.02);
+        let free = |r: [f32; 4], dx: f32, dy: f32| [r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy];
+
+        let mut drag = Drag::from([0.5, 0.0, 0.6, 0.1]);
+        let mut at = [0.0; 4];
+        for _ in 0..20 {
+            at = drag.slide((0.01, 0.0), &anchors, reach, free);
+        }
+
+        // Twenty of those is 0.2 away, which no reach of 0.02 should reel in.
+        assert!((at[0] - 0.7).abs() < 1e-4, "{at:?}");
+    }
+
+    /// Coming back to a line still latches on: leaving has to stay possible
+    /// without the latching stopping working.
+    #[test]
+    fn a_piece_still_latches_on_when_it_comes_back() {
+        let anchors = Anchors {
+            x: vec![0.5],
+            y: vec![],
+        };
+        let reach = (0.02, 0.02);
+        let free = |r: [f32; 4], dx: f32, dy: f32| [r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy];
+
+        let mut drag = Drag::from([0.3, 0.0, 0.4, 0.1]);
+        let mut at = [0.0; 4];
+        for _ in 0..20 {
+            at = drag.slide((0.01, 0.0), &anchors, reach, free);
+        }
+        assert_eq!(at[0], 0.5, "walked past the line without catching: {at:?}");
+    }
+
+    /// With no reach at all — Alt held down — the rectangle goes exactly where
+    /// it is put, however many lines it walks over.
+    #[test]
+    fn no_reach_means_no_latching() {
+        let anchors = Anchors::around(&[], None);
+        let free = |r: [f32; 4], dx: f32, dy: f32| [r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy];
+
+        let mut drag = Drag::from([0.1, 0.0, 0.2, 0.1]);
+        let mut at = [0.0; 4];
+        for _ in 0..40 {
+            at = drag.slide((0.01, 0.0), &anchors, (0.0, 0.0), free);
+        }
+        assert!((at[0] - 0.5).abs() < 1e-4, "{at:?}");
     }
 }

@@ -12,7 +12,7 @@ use iced::{Element, Fill, Point, Rectangle, Renderer, Size, Theme};
 use cie_firma::Drawn;
 
 use crate::preview::{Document, Grab, move_stamp, resize_stamp};
-use crate::snap::{self, Anchors};
+use crate::snap::{self, Anchors, Drag};
 use crate::state::Message;
 use crate::view::board::{self, Art};
 
@@ -65,6 +65,8 @@ struct Stamp {
 struct Dragging {
     grab: Option<Grab>,
     last: Option<Point>,
+    /// Where the box would be with nothing to latch on to. See `snap::Drag`.
+    travel: Option<Drag>,
     /// The lines the box is sitting on, to draw while it is held.
     guides: (Vec<f32>, Vec<f32>),
     /// Alt puts the box down where it is put, snapping or not.
@@ -141,6 +143,7 @@ impl canvas::Program<Message> for Stamp {
                 let p = local(cursor.position_over(bounds)?);
                 state.grab = self.under(page, p);
                 state.last = Some(p);
+                state.travel = (state.grab == Some(Grab::Body)).then(|| Drag::from(self.stamp));
                 state.grab.is_some().then(canvas::Action::capture)
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -159,15 +162,15 @@ impl canvas::Program<Message> for Stamp {
                 };
 
                 let moved = match grab {
-                    Grab::Body => {
-                        let dragged = move_stamp(
-                            self.stamp,
+                    Grab::Body => state.travel.as_mut()?.slide(
+                        (
                             (p.x - previous.x) / page.width,
                             (p.y - previous.y) / page.height,
-                        );
-                        let (dx, dy) = snap::slide(dragged, &anchors, reach);
-                        move_stamp(dragged, dx, dy)
-                    }
+                        ),
+                        &anchors,
+                        reach,
+                        move_stamp,
+                    ),
                     Grab::Corner(i) => {
                         let at = snap::point(
                             ((p.x - page.x) / page.width, (p.y - page.y) / page.height),
@@ -184,6 +187,7 @@ impl canvas::Program<Message> for Stamp {
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.grab = None;
                 state.last = None;
+                state.travel = None;
                 state.guides = (Vec::new(), Vec::new());
                 None
             }
