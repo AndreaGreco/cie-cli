@@ -51,7 +51,7 @@ enum Commands {
         #[arg(short, long)]
         pin: Option<String>,
 
-        /// Dove scrivere la firma (default: <file>.sig)
+        /// Dove scrivere la firma (default: FILE.sig)
         #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
     },
@@ -66,7 +66,7 @@ enum Commands {
         #[arg(short, long)]
         pin: Option<String>,
 
-        /// Dove scrivere la busta (default: <file>.p7m)
+        /// Dove scrivere la busta (default: FILE.p7m)
         #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
     },
@@ -81,7 +81,7 @@ enum Commands {
         #[arg(short, long)]
         pin: Option<String>,
 
-        /// Dove scrivere il PDF firmato (default: <file>-firmato.pdf)
+        /// Dove scrivere il PDF firmato (default: FILE-firmato.pdf)
         #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         output: Option<String>,
 

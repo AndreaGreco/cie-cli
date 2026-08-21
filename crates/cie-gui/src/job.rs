@@ -6,11 +6,13 @@
 
 use anyhow::{Context, Result};
 use cie_firma::{sign_detached, sign_p7m, sign_pdf, PadesOptions, Step};
-use cie_lib::{CardStatus, PcscContext, ReaderWatch};
+use cie_lib::{PcscContext, Presence, Watch};
 use iced::futures::{channel::mpsc, Stream};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::time::Duration;
+use zeroize::Zeroizing;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -60,30 +62,51 @@ pub enum Message {
     Failed(String),
 }
 
-/// How long before trying PC/SC again after it went away: no pcscd running,
-/// or the service restarting under us.
-const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
-
-/// What the reader is doing, as a stream the event loop waits on.
+/// How long the watch waits before looking up to check it is still alive.
 ///
-/// PC/SC is blocking and has no async side: `SCardGetStatusChange` parks the
-/// calling thread, and tokio would only park the same thread under a different
-/// name. So the OS thread stays, and pushes into the channel the runtime is
-/// already polling - which is what removes the timer, not an async runtime.
-pub fn watch() -> impl Stream<Item = CardStatus> {
+/// PC/SC wakes us the moment a card lands or a reader is plugged in, so this
+/// is not how quickly a change is noticed - it is only how quickly we notice
+/// that the daemon we are waiting on has gone away underneath us.
+const PATIENCE: Duration = Duration::from_secs(1);
+
+/// How long to wait before trying to establish a context again.
+const RETRY: Duration = Duration::from_secs(2);
+
+/// What the readers hold, as a stream the event loop waits on.
+///
+/// Only changes come down the stream, so a card sitting still costs nothing
+/// and the window keeps no timer running to hear about it. PC/SC is blocking
+/// and has no async side, so the OS thread stays and pushes into the channel
+/// the runtime is already polling.
+///
+/// Nothing here connects to the card: this thread has to keep running while a
+/// signature is in progress, and a second connection would select the applet
+/// out from under the secure channel.
+pub fn watch() -> impl Stream<Item = Presence> {
     let (tx, rx) = mpsc::unbounded();
     std::thread::spawn(move || {
+        let mut last = None;
+        let mut announce = |seen: Presence| {
+            if last == Some(seen) {
+                return Ok(());
+            }
+            last = Some(seen);
+            tx.unbounded_send(seen)
+        };
+
         loop {
-            if let Ok(mut watch) = ReaderWatch::new() {
-                while let Ok(status) = watch.wait() {
-                    if tx.unbounded_send(status).is_err() {
-                        return; // window closed
+            // A context outlives the daemon that gave it to us and stays dead
+            // once it does: `pcscd` restarted, a reader driver falling over.
+            // So the watch is built again rather than mended.
+            if let Ok(mut watch) = Watch::new() {
+                while let Ok(seen) = watch.look(PATIENCE) {
+                    // The window is gone: so is any reason to keep watching.
+                    if announce(seen).is_err() {
+                        return;
                     }
                 }
             }
-            // No pcscd, or it just went away: there is no reader to speak of
-            // until it comes back.
-            if tx.unbounded_send(CardStatus::NoReader).is_err() {
+            if announce(Presence::NoReader).is_err() {
                 return;
             }
             std::thread::sleep(RETRY);
@@ -134,7 +157,7 @@ fn run(r: &Request, tx: &Sender<Message>) -> Result<(PathBuf, Option<cie_lib::Da
     // Before the reader is touched: if the keyring says no, there is no point
     // having opened a secure channel.
     let pin = match &r.pin {
-        Pin::Typed(pin) => pin.clone(),
+        Pin::Typed(pin) => Zeroizing::new(pin.clone()),
         Pin::Stored(card) => {
             let _ = tx.send(Message::Progress("Sblocco del portachiavi…".to_string()));
             cie_firma::keyring::read_with_prompt(card)

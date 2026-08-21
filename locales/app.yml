@@ -5,6 +5,46 @@ app:
     it: Firma con CIE
     en: Sign with your CIE
 
+menu:
+  file:
+    it: File
+    en: File
+  open_document:
+    it: Apri documento…
+    en: Open document…
+  save_as:
+    it: Salva con nome…
+    en: Save as…
+  quit:
+    it: Esci
+    en: Quit
+  settings:
+    it: Impostazioni
+    en: Settings
+  about:
+    it: Informazioni
+    en: About
+
+about:
+  tagline:
+    it: Firma documenti con la Carta d'Identità Elettronica italiana.
+    en: Sign documents with the Italian electronic identity card.
+  version:
+    it: Versione
+    en: Version
+  author:
+    it: Autore
+    en: Author
+  licence:
+    it: Licenza
+    en: Licence
+  source:
+    it: Sorgenti
+    en: Source
+  credits:
+    it: "Costruito su underskrift (PAdES e CAdES), hayro (anteprima PDF) e iced (interfaccia). Carattere Titillium Web, SIL Open Font License 1.1."
+    en: "Built on underskrift (PAdES and CAdES), hayro (PDF preview) and iced (interface). Titillium Web typeface, SIL Open Font License 1.1."
+
 document:
   section:
     it: Documento
@@ -42,14 +82,23 @@ kind:
     it: Tipo di firma
     en: Signature type
   pades:
-    it: PAdES - la firma dentro il PDF
-    en: PAdES - the signature inside the PDF
+    it: PAdES
+    en: PAdES
+  pades_what:
+    it: La firma dentro il PDF.
+    en: The signature inside the PDF.
   p7m:
-    it: CAdES (.p7m) - documento e firma in un unico file
-    en: CAdES (.p7m) - document and signature in one file
+    it: CAdES (.p7m)
+    en: CAdES (.p7m)
+  p7m_what:
+    it: Documento e firma in un unico file.
+    en: Document and signature in one file.
   detached:
-    it: Firma separata (.sig) - più il certificato
-    en: Detached (.sig) - plus the certificate
+    it: Firma separata (.sig)
+    en: Detached signature (.sig)
+  detached_what:
+    it: Più il certificato, in un .cer accanto.
+    en: Plus the certificate, in a .cer beside it.
   pades_needs_pdf:
     it: Il PAdES vale solo per i PDF.
     en: PAdES only applies to PDFs.
@@ -67,9 +116,15 @@ stamp:
   reason:
     it: Motivo
     en: Reason
+  certify_section:
+    it: Certificazione
+    en: Certification
   certify:
     it: Certifica il documento
     en: Certify the document
+  certify_what:
+    it: "Una firma di certificazione scrive nel documento che cosa si potrà ancora cambiare dopo di essa. Un PDF ne ammette una sola, ed è la prima firma. Senza spunta questa è una normale firma di approvazione, che non toglie niente a chi firma dopo."
+    en: "A certifying signature writes into the document what may still be changed after it. A PDF takes only one, and it is the first signature. Unticked, this is an ordinary approval signature and takes nothing away from whoever signs next."
   certify_1:
     it: nessuna modifica
     en: no changes allowed
@@ -82,6 +137,138 @@ stamp:
   facsimile:
     it: "Il testo è un facsimile: nome e codice fiscale li legge dalla carta al momento della firma."
     en: "The text is a mock-up: name and tax code are read off the card at signing time."
+
+signature:
+  choose:
+    it: Scegli un'immagine…
+    en: Choose an image…
+  remove:
+    it: Rimuovi
+    en: Remove
+  unusable:
+    it: "Immagine della firma non utilizzabile: %{error}"
+    en: "The signature image cannot be used: %{error}"
+
+template:
+  plain:
+    it: Solo testo
+    en: Text only
+  handwritten:
+    it: Firma autografa
+    en: Handwritten signature
+  title:
+    it: Template di firma
+    en: Signature templates
+  edit:
+    it: Modifica i template…
+    en: Edit templates…
+  new:
+    it: Nuovo template
+    en: New template
+  copy_of:
+    it: "%{name} (copia)"
+    en: "%{name} (copy)"
+  add:
+    it: Nuovo
+    en: New
+  duplicate:
+    it: Duplica
+    en: Duplicate
+  delete:
+    it: Elimina
+    en: Delete
+  add_piece:
+    it: Aggiungi
+    en: Add
+  piece_caption:
+    it: Intestazione
+    en: Caption
+  piece_holder:
+    it: Nome del titolare
+    en: Holder's name
+  piece_tax_code:
+    it: Codice fiscale
+    en: Tax code
+  piece_date:
+    it: Data
+    en: Date
+  piece_reason:
+    it: Motivo
+    en: Reason
+  piece_text:
+    it: Testo libero
+    en: Free text
+  piece_text_default:
+    it: Testo
+    en: Text
+  piece_image:
+    it: Firma autografa
+    en: Handwritten signature
+  piece_hint:
+    it: "Il pezzo compare al centro del riquadro: trascinalo dove vuoi e tira gli angoli per ridimensionarlo. Si aggancia ai bordi e alla mezzeria degli altri pezzi; tieni premuto Alt per posarlo dove vuoi."
+    en: "The piece lands in the middle of the box: drag it where you want it and pull the corners to resize. It latches on to the other pieces' edges and middles; hold Alt to put it down anywhere."
+  nothing_selected:
+    it: Nessun pezzo selezionato. Fai clic su un pezzo del riquadro per cambiarlo.
+    en: No piece selected. Click a piece in the box to change it.
+  size:
+    it: Corpo
+    en: Size
+  bold:
+    it: Grassetto
+    en: Bold
+  content:
+    it: Testo
+    en: Text
+  left:
+    it: A sinistra
+    en: Left
+  centre:
+    it: Centrato
+    en: Centred
+  right:
+    it: A destra
+    en: Right
+  top:
+    it: In alto
+    en: Top
+  middle:
+    it: A metà
+    en: Middle
+  bottom:
+    it: In basso
+    en: Bottom
+  remove_piece:
+    it: Togli dal riquadro
+    en: Remove from the box
+  box_size:
+    it: "Riquadro"
+    en: "Box"
+  millimetres:
+    it: mm
+    en: mm
+  background:
+    it: Sfondo bianco
+    en: White background
+  border:
+    it: Bordo
+    en: Border
+  snapping:
+    it: Aggancia ai bordi e alle mezzerie (Alt per invertire)
+    en: Latch on to edges and middles (Alt inverts it)
+  paper_hint:
+    it: "Senza sfondo il documento si vede attraverso; il bordo tratteggiato non viene stampato."
+    en: "With no background the document shows through; the dashed edge is not printed."
+  picture:
+    it: Immagine
+    en: Picture
+  picture_missing:
+    it: "L'immagine di questo template non si apre: il riquadro verrà firmato senza."
+    en: "This template's picture cannot be opened: the box will be signed without it."
+
+settings:
+  not_saved:
+    it: "Impostazioni non salvate: %{error}"
+    en: "Settings not saved: %{error}"
 
 output:
   section:
@@ -113,6 +300,12 @@ sign:
   pin_remember:
     it: Ricordalo nel portachiavi
     en: Remember it in the keyring
+  needs_card:
+    it: Appoggia la CIE sul lettore.
+    en: Put the CIE on the reader.
+  needs_reader:
+    it: Collega un lettore di smart card.
+    en: Plug in a smart card reader.
   pin_short:
     it: Servono tutte e otto le cifre.
     en: All eight digits are needed.
@@ -156,6 +349,26 @@ sign:
     it: Nessun documento scelto.
     en: No document chosen.
 
+card:
+  looking:
+    it: Lettura della carta…
+    en: Reading the card…
+  no_card:
+    it: Nessuna CIE sul lettore
+    en: No CIE on the reader
+  no_reader:
+    it: Nessun lettore
+    en: No reader
+  unknown:
+    it: Carta non letta
+    en: Card not read
+  foreign:
+    it: Carta non riconosciuta
+    en: Card not recognised
+  reread:
+    it: Rileggi la carta
+    en: Read the card again
+
 keyring:
   saved:
     it: PIN salvato nel portachiavi.
@@ -172,20 +385,6 @@ keyring:
   stored:
     it: PIN nel portachiavi
     en: PIN in the keyring
-
-card:
-  no_reader:
-    it: Nessun lettore
-    en: No reader
-  no_card:
-    it: Lettore collegato, nessuna carta
-    en: Reader connected, no card
-  reading:
-    it: Lettura della carta…
-    en: Reading the card…
-  unreadable:
-    it: Carta non riconosciuta
-    en: Card not recognised
 
 theme:
   system:

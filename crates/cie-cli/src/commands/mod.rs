@@ -6,6 +6,7 @@ use cie_firma::{CieSigner, CryptoSigner, Step};
 use cie_lib::PcscContext;
 use std::cell::Cell;
 use std::io::{self, Write};
+use zeroize::Zeroizing;
 
 pub mod auth;
 pub mod completions;
@@ -80,11 +81,11 @@ pub fn open_card(ctx: &PcscContext, pin: Option<String>) -> Result<CieSigner> {
 /// All eight digits are needed. The official middleware keeps four of them in a
 /// cache on disk (`IAS::GetFirstPIN`) and asks only for the other four: that is
 /// why it insists on the Java card-registration app.
-pub fn resolve_pin(pin: Option<String>, card: Option<&str>) -> Result<(String, bool)> {
+pub fn resolve_pin(pin: Option<String>, card: Option<&str>) -> Result<(Zeroizing<String>, bool)> {
     // An explicit PIN settles it: the keyring is not touched, and neither is
     // its lock - there is nothing to prove to a caller who already typed it.
     let (pin, typed) = match pin {
-        Some(pin) => (pin, false),
+        Some(pin) => (Zeroizing::new(pin), false),
         None => match card.and_then(keyring::read_with_prompt) {
             Some(entry) => {
                 match entry.holder() {
@@ -96,7 +97,7 @@ pub fn resolve_pin(pin: Option<String>, card: Option<&str>) -> Result<(String, b
             None => {
                 eprint!("  Inserisci PIN (8 cifre): ");
                 io::stderr().flush()?;
-                (rpassword::read_password()?, true)
+                (Zeroizing::new(rpassword::read_password()?), true)
             }
         },
     };
@@ -129,7 +130,7 @@ fn offer_to_remember(card: &str, pin: &str, certificate: &[u8]) {
 
     let holder = cie_lib::DatiTitolare::from_certificate_der(certificate).unwrap_or_default();
     let entry = CardSecret {
-        pin: pin.to_string(),
+        pin: pin.to_string().into(),
         name: holder.nome,
         surname: holder.cognome,
         tax_code: holder.codice_fiscale,

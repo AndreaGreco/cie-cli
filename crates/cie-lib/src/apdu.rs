@@ -141,7 +141,7 @@ impl CieApdu {
     }
 
     /// SELECT FILE: Seleziona un file Elementary File (EF)
-    /// Comando: 00 A4 02 04 02 [file_id]
+    /// Comando: `00 A4 02 04 02 [file_id]`
     pub fn select_file(file_id: u16) -> Vec<u8> {
         vec![
             0x00, // CLA

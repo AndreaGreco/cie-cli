@@ -7,8 +7,11 @@
 // console is where the logs go, so only the shipped build hides it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod icon;
 mod job;
 mod preview;
+mod settings;
+mod snap;
 mod state;
 mod theme;
 mod view;
@@ -54,12 +57,13 @@ fn main() -> iced::Result {
         window.platform_specific.application_id = "cie-gui".to_string();
     }
 
-    iced::application(State::default, update, view::view)
+    iced::application(State::new, update, view::view)
         .title(|_: &State| rust_i18n::t!("app.title").into_owned())
         .theme(|s: &State| s.mode.theme())
         .subscription(subscription)
         .font(include_bytes!("../fonts/TitilliumWeb-Regular.ttf").as_slice())
         .font(include_bytes!("../fonts/TitilliumWeb-SemiBold.ttf").as_slice())
+        .font(include_bytes!("../fonts/lucide.ttf").as_slice())
         .default_font(theme::UI)
         .window(window)
         .run()
@@ -74,7 +78,23 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 |f| Message::DocumentChosen(f.map(|f| f.path().to_path_buf())),
             );
         }
-        Message::ChooseOutput => {
+        // Only PNG and JPEG: they are what a PDF can carry without us
+        // re-encoding anything, and the dialog is the friendlier place to say
+        // so than an error after the file was chosen.
+        Message::ChooseSignatureImage => {
+            return Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("PNG, JPEG", &["png", "jpg", "jpeg"])
+                        .pick_file()
+                        .await
+                },
+                |f| Message::SignatureImageChosen(f.map(|f| f.path().to_path_buf())),
+            );
+        }
+        // Ctrl+S can arrive with nothing open; the menu hides the entry in
+        // that case, and the shortcut has to agree with it.
+        Message::ChooseOutput if state.path.is_some() => {
             let mut dialog = rfd::AsyncFileDialog::new();
             if let Some(dir) = state.output.parent() {
                 dialog = dialog.set_directory(dir);
@@ -86,6 +106,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 Message::OutputChosen(f.map(|f| f.path().to_path_buf()))
             });
         }
+        Message::Quit => return iced::exit(),
         // A failure to open is not worth a dialog of its own: the file is
         // written either way, and the desktop already complains on its own.
         Message::OpenResult => {
@@ -129,12 +150,21 @@ fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Opti
         iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => match key {
             keyboard::Key::Named(Named::ArrowLeft | Named::PageUp) => Some(Message::PageBack),
             keyboard::Key::Named(Named::ArrowRight | Named::PageDown) => Some(Message::PageForward),
+            // The shortcuts the menus advertise, plus the zoom ones that were
+            // here before there were any menus to advertise them.
             keyboard::Key::Character(ref c) if modifiers.command() => match c.as_str() {
                 "+" | "=" => Some(Message::ZoomIn),
                 "-" => Some(Message::ZoomOut),
                 "0" => Some(Message::ZoomReset),
+                "o" => Some(Message::ChooseDocument),
+                "s" => Some(Message::ChooseOutput),
+                "q" => Some(Message::Quit),
+                "t" => Some(Message::ShowTemplates),
                 _ => None,
             },
+            // Whatever is laid over the window goes away on Escape. The card
+            // is not interrupted this way: the signing panel does not listen.
+            keyboard::Key::Named(Named::Escape) => Some(Message::OverlayDismissed),
             _ => None,
         },
         _ => None,
@@ -149,7 +179,8 @@ fn subscription(state: &State) -> Subscription<Message> {
         Subscription::run(|| job::watch().map(Message::CardChanged)),
     ];
 
-    // The timer only exists while a thread has something to say.
+    // The timer only exists while a thread has something to say. The reader
+    // needs none: it pushes.
     if state.busy() {
         subscriptions.push(time::every(TICK).map(|_| Message::Tick));
     }

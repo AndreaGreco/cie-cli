@@ -1,0 +1,230 @@
+diff --git a/src/visual/appearance.rs b/src/visual/appearance.rs
+index 3bbeb5e..1c131c6 100644
+--- a/src/visual/appearance.rs
++++ b/src/visual/appearance.rs
+@@ -299,7 +299,9 @@ pub fn build_appearance_with_context(
+ ///
+ /// Calls the renderer to produce PDF content stream bytes, then wraps
+ /// the result with optional background/border graphics. The renderer's
+-/// font resources are passed through to the returned [`AppearanceStream`].
++/// font and image resources are passed through to the returned
++/// [`AppearanceStream`], which is what lets a custom appearance paint a
++/// picture as well as text.
+ fn build_custom_appearance(
+     renderer: &dyn AppearanceRenderer,
+     ctx: &AppearanceContext,
+@@ -336,13 +338,28 @@ fn build_custom_appearance(
+     // Restore graphics state
+     write_op(&mut stream, "Q");
+ 
++    // Decode whatever the renderer asked to paint. Done here rather than in
++    // the renderer so a custom appearance hands over an ImageConfig like every
++    // other layout does, instead of having to know how PDF embeds an image.
++    #[cfg(feature = "visual")]
++    let image_resources = custom_result
++        .image_resources
++        .iter()
++        .map(|(resource_name, config)| {
++            Ok(ImageResource {
++                resource_name: resource_name.clone(),
++                image: prepare_image(&config.data, config.format)?,
++            })
++        })
++        .collect::<Result<Vec<_>, VisualError>>()?;
++
+     Ok(AppearanceStream {
+         content: stream,
+         font_resources: custom_result.font_resources,
+         #[cfg(feature = "visual")]
+         embedded_font_resources: Vec::new(),
+         #[cfg(feature = "visual")]
+-        image_resources: Vec::new(),
++        image_resources,
+         bbox: [0.0, 0.0, width, height],
+     })
+ }
+@@ -1458,4 +1475,120 @@ mod image_tests {
+         assert_eq!(result.image_resources.len(), 1);
+         assert!(!result.font_resources.is_empty());
+     }
++
++    /// A custom renderer that paints a picture.
++    ///
++    /// Text it could always lay out freely; an image it could not carry at
++    /// all, so any appearance mixing a scan with text had to go through one of
++    /// the fixed `Arrangement`s.
++    #[cfg(feature = "visual")]
++    struct PictureRenderer {
++        data: Vec<u8>,
++    }
++
++    #[cfg(feature = "visual")]
++    impl AppearanceRenderer for PictureRenderer {
++        fn render(&self, ctx: &AppearanceContext) -> Result<CustomAppearanceResult, VisualError> {
++            let mut content = Vec::new();
++            write_fmt(
++                &mut content,
++                &format!("{:.2} 0 0 {:.2} 0 0 cm", ctx.width, ctx.height),
++            );
++            write_op(&mut content, "/Im1 Do");
++
++            Ok(CustomAppearanceResult {
++                content,
++                image_resources: vec![(
++                    "Im1".to_string(),
++                    ImageConfig {
++                        data: self.data.clone(),
++                        format: ImageFormat::Jpeg,
++                        scale: ImageScale::FitPreserveAspect,
++                    },
++                )],
++                ..Default::default()
++            })
++        }
++    }
++
++    /// The image a custom renderer asks for has to reach the appearance, or
++    /// the signer pipeline has no XObject to build and `/Im1 Do` paints
++    /// nothing.
++    #[cfg(feature = "visual")]
++    #[test]
++    fn test_custom_appearance_carries_its_images() {
++        let renderer = PictureRenderer {
++            data: test_jpeg_bytes(),
++        };
++
++        let result =
++            build_custom_appearance(&renderer, &test_context(), 200.0, 80.0, None, None).unwrap();
++
++        assert_eq!(result.image_resources.len(), 1);
++        assert_eq!(result.image_resources[0].resource_name, "Im1");
++        assert_eq!(result.image_resources[0].image.width, 10);
++        assert!(String::from_utf8_lossy(&result.content).contains("/Im1 Do"));
++    }
++
++    /// A renderer that asks for nothing must still come out with nothing,
++    /// rather than an empty XObject the pipeline would have to skip.
++    #[cfg(feature = "visual")]
++    #[test]
++    fn test_custom_appearance_without_images_has_none() {
++        struct TextOnly;
++        impl AppearanceRenderer for TextOnly {
++            fn render(&self, _ctx: &AppearanceContext) -> Result<CustomAppearanceResult, VisualError> {
++                Ok(CustomAppearanceResult {
++                    content: b"q Q\n".to_vec(),
++                    ..Default::default()
++                })
++            }
++        }
++
++        let result =
++            build_custom_appearance(&TextOnly, &test_context(), 100.0, 40.0, None, None).unwrap();
++
++        assert!(result.image_resources.is_empty());
++    }
++
++    /// Bytes that are not the format they claim have to fail here, where the
++    /// caller can still be told which resource was wrong — not later, in the
++    /// middle of writing a PDF.
++    #[cfg(feature = "visual")]
++    #[test]
++    fn test_custom_appearance_rejects_an_unreadable_image() {
++        struct Broken;
++        impl AppearanceRenderer for Broken {
++            fn render(&self, _ctx: &AppearanceContext) -> Result<CustomAppearanceResult, VisualError> {
++                Ok(CustomAppearanceResult {
++                    image_resources: vec![(
++                        "Im1".to_string(),
++                        ImageConfig {
++                            data: b"not a jpeg".to_vec(),
++                            format: ImageFormat::Jpeg,
++                            scale: ImageScale::FitPreserveAspect,
++                        },
++                    )],
++                    ..Default::default()
++                })
++            }
++        }
++
++        assert!(build_custom_appearance(&Broken, &test_context(), 100.0, 40.0, None, None).is_err());
++    }
++
++    /// A context with nothing in it: these tests are about resources, not
++    /// about what the renderer does with the signing metadata.
++    #[cfg(feature = "visual")]
++    fn test_context() -> AppearanceContext {
++        AppearanceContext {
++            width: 0.0,
++            height: 0.0,
++            signer_name: None,
++            reason: None,
++            location: None,
++            date: None,
++            contact_info: None,
++        }
++    }
+ }
+diff --git a/src/visual/layout.rs b/src/visual/layout.rs
+index 928f3a7..0ae701e 100644
+--- a/src/visual/layout.rs
++++ b/src/visual/layout.rs
+@@ -70,7 +70,7 @@ pub struct AppearanceContext {
+ ///
+ ///         Ok(CustomAppearanceResult {
+ ///             content: stream,
+-///             font_resources: vec![],
++///             ..Default::default()
+ ///         })
+ ///     }
+ /// }
+@@ -82,14 +82,28 @@ pub trait AppearanceRenderer: Send + Sync {
+ 
+ /// Result of a custom appearance rendering.
+ ///
+-/// Contains the raw PDF content stream and font resources required.
+-#[derive(Debug, Clone)]
++/// Contains the raw PDF content stream and the resources it refers to.
++///
++/// [`Default`] is implemented so renderers can fill in only the fields they
++/// use — `..Default::default()` — and keep compiling when another resource
++/// kind is added here.
++#[derive(Debug, Clone, Default)]
+ pub struct CustomAppearanceResult {
+     /// Raw PDF content stream bytes (drawing operators).
+     pub content: Vec<u8>,
+     /// Standard 14 font resources used in the content stream.
+     /// Each entry is `(resource_name, pdf_font_name)` — e.g., `("F1", "Helvetica")`.
+     pub font_resources: Vec<(String, String)>,
++    /// Images used in the content stream.
++    /// Each entry is `(resource_name, image)` — e.g., `("Im1", config)` for a
++    /// stream that paints it with `/Im1 Do`.
++    ///
++    /// Without this a custom renderer can lay out text freely but cannot draw
++    /// a picture at all, which rules out the whole class of appearances that
++    /// mix a scanned signature with text the built-in arrangements do not
++    /// place the way the caller wants.
++    #[cfg(feature = "visual")]
++    pub image_resources: Vec<(String, ImageConfig)>,
+ }
+ 
+ /// Configuration for a visible signature appearance.
+@@ -722,10 +736,7 @@ impl AppearanceRenderer for SignatureTemplate {
+             .collect();
+ 
+         if resolved_lines.is_empty() {
+-            return Ok(CustomAppearanceResult {
+-                content: Vec::new(),
+-                font_resources: vec![],
+-            });
++            return Ok(CustomAppearanceResult::default());
+         }
+ 
+         let mut stream = Vec::with_capacity(512);
+@@ -800,6 +811,7 @@ impl AppearanceRenderer for SignatureTemplate {
+         Ok(CustomAppearanceResult {
+             content: stream,
+             font_resources: fonts,
++            ..Default::default()
+         })
+     }
+ }

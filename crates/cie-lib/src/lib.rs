@@ -45,6 +45,7 @@
 pub mod error;
 pub mod titolare;
 pub mod pcsc_direct;
+pub mod presence;
 pub mod apdu;
 pub mod crypto;
 pub mod asn1;
@@ -53,6 +54,7 @@ pub mod secure_messaging;
 // Re-export principali
 pub use error::{CieError, Result};
 pub use titolare::DatiTitolare;
-pub use pcsc_direct::{CardStatus, PcscContext, PcscCard, ReaderWatch};
+pub use pcsc_direct::{PcscContext, PcscCard};
+pub use presence::{Presence, Watch};
 pub use apdu::{CieCard, CieApdu, CieFileId, CieType};
 pub use secure_messaging::SecureMessaging;

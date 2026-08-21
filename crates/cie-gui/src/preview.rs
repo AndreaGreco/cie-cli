@@ -113,7 +113,6 @@ impl Document {
 ///
 /// Below this the mock-up stops being legible and, more to the point, a stamp
 /// you cannot grab again is a stamp you cannot fix.
-
 const MIN_SIDE: f32 = 0.03;
 
 /// Which grip on the stamp is being dragged.
@@ -132,7 +131,6 @@ pub enum Grab {
 ///
 /// Everything that touches the stamp goes through here, so no other code has
 /// to remember that a rectangle dragged upwards arrives inside out.
-
 pub fn normalise(stamp: [f32; 4]) -> [f32; 4] {
     let [a, b, c, d] = stamp;
     let (mut x0, mut x1) = (a.min(c), a.max(c));
@@ -165,7 +163,6 @@ pub fn normalise(stamp: [f32; 4]) -> [f32; 4] {
 
 /// Slides the stamp by a fraction of the page, keeping its size and keeping it
 /// on the page.
-
 pub fn move_stamp(stamp: [f32; 4], dx: f32, dy: f32) -> [f32; 4] {
     let [x0, y0, x1, y1] = normalise(stamp);
     let (w, h) = (x1 - x0, y1 - y0);
@@ -177,7 +174,6 @@ pub fn move_stamp(stamp: [f32; 4], dx: f32, dy: f32) -> [f32; 4] {
 }
 
 /// Drags one corner to a point, leaving the opposite corner where it is.
-
 pub fn resize_stamp(stamp: [f32; 4], corner: usize, to: (f32, f32)) -> [f32; 4] {
     let [mut x0, mut y0, mut x1, mut y1] = normalise(stamp);
     let (x, y) = (to.0.clamp(0.0, 1.0), to.1.clamp(0.0, 1.0));

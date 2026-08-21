@@ -201,6 +201,51 @@ Lo script finisce dove bash e fish lo trovano da soli
 per zsh il comando stampa la riga di `fpath` da aggiungere a `~/.zshrc`. Vale
 la pena rilanciarlo dopo un aggiornamento: le opzioni nuove arrivano da lì.
 
+## L'interfaccia grafica
+
+`cie-gui` è un binario separato: chi usa la riga di comando non si porta dietro
+un toolkit grafico.
+
+```bash
+cargo run --release -p cie-gui
+```
+
+Una schermata sola: il documento al centro, le scelte in colonna a destra, in
+fondo dove finirà il file e il pulsante per firmare. Il riquadro della firma si
+trascina per spostarlo e si prende per gli angoli per ridimensionarlo, al posto
+della posizione cablata di `cie sign-pdf`; dentro il riquadro c'è un facsimile
+di come verrà, alla stessa scala che avrà nel PDF. Quanto è grande lo dice il
+template, in millimetri, così resta della stessa misura su ogni foglio. Lo si
+dice in tre modi, e sono lo stesso: i due campi accanto al nome del template,
+un angolo del riquadro trascinato sulla pagina, o un bordo del riquadro tirato
+nell'editor. Il bordo del riquadro nell'editor c'è sempre — tratteggiato quando
+il template non ne vuole uno stampato — perché in un riquadro di cui non si
+vedono i lati non si compone niente. Il nome del file firmato è
+quello proposto dalla CLI, e si può cambiare con un salva-con-nome.
+
+Comodità:
+
+| | |
+|---|---|
+| frecce, PagSu / PagGiù | cambia pagina |
+| rotella | cambia pagina a 100%, scorre quando sei zoomato |
+| Ctrl `+` `−` `0` | zoom avanti, indietro, torna a 100% |
+| trascinamento di un file | lo apre |
+
+Il tema segue il desktop; l'interruttore in alto a destra forza chiaro o scuro.
+La lingua arriva da `LANG`, con l'italiano come ripiego.
+
+Su un window manager a piastrelle la finestra la piazza il compositore, non il
+programma: l'unica cosa che `cie-gui` può fare è dire chi è. Su Sway:
+
+```
+for_window [app_id="cie-gui"] floating enable, resize set 1280 880
+```
+
+Il PIN si legge, si salva e si cancella dal portachiavi direttamente dalla
+finestra. La voce è la stessa che usa `cie`, perché i due strumenti condividono
+il codice invece di accordarsi su una convenzione.
+
 ## Il PIN
 
 In ordine di precedenza: argomento `--pin`, portachiavi di sistema, prompt a

@@ -17,11 +17,18 @@ mod detached;
 pub mod keyring;
 mod pades;
 mod signer;
+mod stamp;
+mod template;
 
 pub use cades::sign_p7m;
 pub use detached::sign_detached;
-pub use pades::{preview_stamp_lines, sign_pdf, stamp_lines, PadesOptions};
+pub use pades::{sign_pdf, PadesOptions, Stamp};
 pub use signer::{card_id, identify, open_and_authenticate, CieSigner, Step};
+pub use stamp::{stamp_lines, StampFormat, StampImage, StampLayout};
+pub use template::{
+    across, fit, mm_to_pt, pt_to_mm, Align, Drawn, Facts, Ink, Piece, Placed, Template, Vertical,
+    DEFAULT_SIZE_MM, MAX_SIDE_MM, MIN_SIDE_MM,
+};
 
 #[cfg(any(test, feature = "test-signer"))]
 pub use signer::fake;

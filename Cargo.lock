@@ -1065,6 +1065,8 @@ dependencies = [
  "opener",
  "rfd",
  "rust-i18n",
+ "serde",
+ "serde_json",
  "tempfile",
  "zeroize",
 ]
@@ -6811,7 +6813,7 @@ dependencies = [
 [[package]]
 name = "underskrift"
 version = "0.1.4"
-source = "git+https://github.com/AttilioGreco/underskrift?branch=main#9fbd3f3044459ce622cc5b2b315297b41b3aff44"
+source = "git+https://github.com/AttilioGreco/underskrift?branch=main#2f9f63af6e4ec5c61b190fa060f6b91c83ff7f64"
 dependencies = [
  "base64",
  "chrono",
