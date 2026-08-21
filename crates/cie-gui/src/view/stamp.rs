@@ -16,11 +16,6 @@ use crate::snap::{self, Anchors, Drag};
 use crate::state::Message;
 use crate::view::board::{self, Art};
 
-/// Side of the corner grips, in pixels. Also the hit radius, times the slack
-/// below: a grip you cannot hit is not a grip.
-const GRIP: f32 = 7.0;
-const SLACK: f32 = 1.6;
-
 /// The program owns everything it needs, so the widget borrows nothing from
 /// the document — it only had to measure it.
 pub fn canvas(
@@ -78,6 +73,16 @@ struct Dragging {
     alt: bool,
 }
 
+impl Dragging {
+    /// Lets go of whatever was being dragged, guides and all: left on screen
+    /// with nothing in hand they are lines pointing at nothing.
+    fn let_go(&mut self) {
+        self.last = None;
+        self.travel = None;
+        self.guides = (Vec::new(), Vec::new());
+    }
+}
+
 impl Stamp {
     /// Where the page actually lands inside the canvas.
     ///
@@ -108,24 +113,15 @@ impl Stamp {
         }
     }
 
-    fn corners(&self, page: Rectangle) -> [Point; 4] {
-        let b = self.box_rect(page);
-        [
-            Point::new(b.x, b.y),
-            Point::new(b.x + b.width, b.y),
-            Point::new(b.x, b.y + b.height),
-            Point::new(b.x + b.width, b.y + b.height),
-        ]
-    }
-
     /// What sits under a point. Corners win over the body: they are drawn on
-    /// top of it, so they have to be grabbed before it too.
+    /// top of it, so they have to be grabbed before it too — but never so much
+    /// of it that there is no body left to drag. See [`board::on_corner`].
     fn under(&self, page: Rectangle, p: Point) -> Option<Grab> {
-        self.corners(page)
-            .iter()
-            .position(|c| c.distance(p) <= GRIP * SLACK)
+        let boxed = self.box_rect(page);
+
+        board::on_corner(boxed, p)
             .map(Grab::Corner)
-            .or_else(|| self.box_rect(page).contains(p).then_some(Grab::Body))
+            .or_else(|| boxed.contains(p).then_some(Grab::Body))
     }
 }
 
@@ -157,7 +153,10 @@ impl canvas::Program<Message> for Stamp {
                 let previous = state.last.replace(p)?;
 
                 let anchors = Anchors::page(self.page_size_pt);
-                let reach = if self.snapping != state.alt {
+                // Alt inverts the setting rather than only switching latching
+                // off, so there is a momentary gesture for both directions.
+                let latching = self.snapping != state.alt;
+                let reach = if latching {
                     (
                         snap::REACH_PX / page.width.max(1.0),
                         snap::REACH_PX / page.height.max(1.0),
@@ -186,18 +185,34 @@ impl canvas::Program<Message> for Stamp {
                     }
                 };
 
-                state.guides = snap::touching(moved, &anchors);
+                // Only while something is latching: a box put down by hand
+                // lands on a line often enough, and a guide drawn then would be
+                // the interface claiming to have done what it was told not to.
+                state.guides = if latching {
+                    snap::touching(moved, &anchors)
+                } else {
+                    (Vec::new(), Vec::new())
+                };
                 Some(canvas::Action::publish(Message::StampChanged(moved)))
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                state.grab = None;
-                state.last = None;
-                state.travel = None;
-                state.guides = (Vec::new(), Vec::new());
-                None
+                let dragged = state.grab.take().is_some();
+                state.let_go();
+                // The box was moved a frame at a time and never written down.
+                // This is where the template keeps the size it ended up.
+                dragged.then(|| canvas::Action::publish(Message::DragEnded))
             }
             iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                 state.alt = modifiers.alt();
+                None
+            }
+            // Alt-Tab is Alt held down and released somewhere else: the release
+            // never arrives here, and the setting would stay inverted for good.
+            // See the same handler on the editor's board.
+            iced::Event::Window(iced::window::Event::Unfocused) => {
+                state.alt = false;
+                state.grab = None;
+                state.let_go();
                 None
             }
             _ => None,
@@ -231,11 +246,12 @@ impl canvas::Program<Message> for Stamp {
         let path = Path::rectangle(Point::new(boxed.x, boxed.y), boxed.size());
         frame.stroke(&path, Stroke::default().with_width(1.5).with_color(accent));
 
-        for c in self.corners(page) {
+        let side = board::grip(boxed);
+        for c in board::corners(boxed) {
             frame.fill(
                 &Path::rectangle(
-                    Point::new(c.x - GRIP / 2.0, c.y - GRIP / 2.0),
-                    Size::new(GRIP, GRIP),
+                    Point::new(c.x - side / 2.0, c.y - side / 2.0),
+                    Size::new(side, side),
                 ),
                 accent,
             );

@@ -20,12 +20,6 @@ const PANEL_W: f32 = 900.0;
 const PANEL_H: f32 = 620.0;
 const PALETTE: f32 = 170.0;
 
-/// The signature box when nothing better is known — the same rectangle
-/// `cie sign-pdf` uses from the command line. Editing with a document open
-/// uses that document's box instead, so what is composed has the shape and the
-/// scale it will really have.
-const DEFAULT_BOX_PT: (f32, f32) = (230.0, 70.0);
-
 pub fn panel(state: &State, selected: Option<usize>) -> Element<'_, Message> {
     let body = column![
         header(state),
@@ -71,6 +65,7 @@ fn header(state: &State) -> Element<'_, Message> {
         })
         .collect();
     let chosen = choices.get(state.settings.active).cloned();
+
     // The last template never goes: with none there is nothing to sign with.
     let removable = state.settings.templates.len() > 1;
 
@@ -86,7 +81,16 @@ fn header(state: &State) -> Element<'_, Message> {
                 .style(theme::field)
                 .size(13)
                 .padding(7)
-                .width(Length::Fixed(220.0)),
+                .width(Length::Fixed(200.0)),
+            space::horizontal(),
+            // How big the box is. Beside the name rather than in the toolbar
+            // below, because it belongs to the template and not to whichever
+            // piece happens to be selected.
+            text(t!("template.box_size")).size(12),
+            millimetres(&state.box_size[0], 0),
+            text("×").size(12),
+            millimetres(&state.box_size[1], 1),
+            text(t!("template.millimetres")).size(12),
             space::horizontal(),
             chooser(icon::ADD, t!("template.add"), false, Some(Message::TemplateAdded)),
             chooser(
@@ -182,13 +186,13 @@ fn board(state: &State, selected: Option<usize>) -> Element<'_, Message> {
     );
 
     super::board::canvas(
-        state.settings.active().resolve(&facts),
+        state.settings.active().compose(&facts),
         selected,
         state.signature.as_ref().map(|s| super::board::Art {
             handle: s.handle.clone(),
             ratio: s.image.aspect_ratio(),
         }),
-        state.box_size_pt().unwrap_or(DEFAULT_BOX_PT),
+        state.box_size_pt(),
         super::board::Paper {
             background: state.settings.active().background,
             border: state.settings.active().border,
@@ -313,6 +317,22 @@ fn toolbar(state: &State, selected: Option<usize>) -> Element<'_, Message> {
         ));
 
     container(bar).padding([6, 8]).width(Fill).into()
+}
+
+/// A millimetre field: one side of the box.
+///
+/// It shows what was typed into it rather than the number the box ended up
+/// with — see `State::box_size` for why a field that answers back cannot be
+/// typed into — so half a number, or one out of range, stays on screen while
+/// the box waits for the rest of it.
+fn millimetres<'a>(mm: &str, side: usize) -> Element<'a, Message> {
+    text_input("", mm)
+        .on_input(move |mm| Message::BoxSized { side, mm })
+        .style(theme::field)
+        .size(13)
+        .padding(6)
+        .width(Length::Fixed(52.0))
+        .into()
 }
 
 /// An icon button that shows whether what it stands for is in force.

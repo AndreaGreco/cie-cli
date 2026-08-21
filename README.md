@@ -163,7 +163,13 @@ Una schermata sola: il documento al centro, le scelte in colonna a destra, in
 fondo dove finirà il file e il pulsante per firmare. Il riquadro della firma si
 trascina per spostarlo e si prende per gli angoli per ridimensionarlo, al posto
 della posizione cablata di `cie sign-pdf`; dentro il riquadro c'è un facsimile
-di come verrà, alla stessa scala che avrà nel PDF. Il nome del file firmato è
+di come verrà, alla stessa scala che avrà nel PDF. Quanto è grande lo dice il
+template, in millimetri, così resta della stessa misura su ogni foglio. Lo si
+dice in tre modi, e sono lo stesso: i due campi accanto al nome del template,
+un angolo del riquadro trascinato sulla pagina, o un bordo del riquadro tirato
+nell'editor. Il bordo del riquadro nell'editor c'è sempre — tratteggiato quando
+il template non ne vuole uno stampato — perché in un riquadro di cui non si
+vedono i lati non si compone niente. Il nome del file firmato è
 quello proposto dalla CLI, e si può cambiare con un salva-con-nome.
 
 Comodità:

@@ -40,6 +40,23 @@ const BASE_RENDER_PX: f32 = 1600.0;
 /// which is worth it the day somebody zooms to 8x to read a signature.
 const MAX_RENDER_PX: f32 = 2600.0;
 
+/// A box's size as it goes in its fields: a tenth of a millimetre if there is
+/// one, and a whole number when there is not.
+///
+/// `81` rather than `81.0`, because a field showing a decimal point nobody
+/// asked for is a field somebody has to delete a character out of the middle
+/// of before they can type their own number in.
+fn written(size_mm: [f32; 2]) -> [String; 2] {
+    let word = |mm: f32| {
+        if (mm - mm.round()).abs() < 0.05 {
+            format!("{:.0}", mm.round())
+        } else {
+            format!("{mm:.1}")
+        }
+    };
+    [word(size_mm[0]), word(size_mm[1])]
+}
+
 fn next_zoom(current: f32, direction: i32) -> f32 {
     let here = ZOOM_STOPS
         .iter()
@@ -80,6 +97,12 @@ pub enum Message {
     TemplateDuplicated,
     TemplateDeleted,
     TemplateRenamed(String),
+    /// One of the box's two size fields was typed into: which side, and the
+    /// words now in it.
+    BoxSized { side: usize, mm: String },
+    /// The box was taken by one of its own edges in the editor and pulled to
+    /// this size, `[width, height]` in millimetres.
+    BoxStretched([f32; 2]),
     SnappingToggled(bool),
     TemplateBackgroundToggled(bool),
     TemplateBorderToggled(bool),
@@ -99,6 +122,14 @@ pub enum Message {
     PieceRaised(Vertical),
     PieceTextChanged(String),
     PieceRemoved,
+    /// A drag over either canvas has ended.
+    ///
+    /// Dragging changes the template on every frame, and writing the settings
+    /// out on every frame is a file rewritten a hundred times over one
+    /// gesture — enough, on a slow disk, for the box to lag behind the hand
+    /// moving it. The move happens as it is made and is written down once,
+    /// when the button comes up.
+    DragEnded,
 
     // Destination
     ChooseOutput,
@@ -253,6 +284,17 @@ pub struct State {
 
     // User settings
     pub settings: Settings,
+    /// What the box's two size fields are showing.
+    ///
+    /// The number in the template would do, and does not: a field that
+    /// reformatted what it was handed on every keystroke could never be
+    /// cleared to type a new number into — take the last digit off `81.0` and
+    /// `8.0` comes straight back with the cursor somewhere in the middle of
+    /// it. So the words stay as they were typed, and the box follows them
+    /// whenever they say a size a box can be. Anything that changes the box
+    /// from elsewhere — another template, a corner dragged over the page —
+    /// writes them again.
+    pub box_size: [String; 2],
     /// The picture the settings name, once it has been read. `None` when there
     /// is none, and also when the one named could not be opened.
     pub signature: Option<Signature>,
@@ -288,6 +330,7 @@ impl Default for State {
             notice: None,
             mode: Mode::default(),
             settings: Settings::default(),
+            box_size: written(cie_firma::DEFAULT_SIZE_MM),
             signature: None,
             settings_path: None,
             identifying: None,
@@ -312,6 +355,7 @@ impl State {
             settings_path,
             ..Self::default()
         };
+        state.show_box_size();
         state.load_signature();
         state
     }
@@ -366,11 +410,16 @@ impl State {
             }
             Message::PageBack => {
                 self.page = self.page.saturating_sub(1);
+                // Pages in one document need not be the same size, and the box
+                // is a real measurement: the same fraction of a different
+                // sheet would be a different stamp.
+                self.fit_stamp();
                 self.rasterise();
             }
             Message::PageForward => {
                 if self.page + 1 < self.page_count() {
                     self.page += 1;
+                    self.fit_stamp();
                     self.rasterise();
                 }
             }
@@ -382,8 +431,17 @@ impl State {
                     self.update(if up { Message::PageBack } else { Message::PageForward });
                 }
             }
-            Message::StampReset => self.stamp = DEFAULT_STAMP,
-            Message::StampChanged(stamp) => self.stamp = stamp,
+            Message::StampReset => self.propose_stamp(),
+            // Dragging the box over the page is the other way of saying how
+            // big it is, so what it comes out measuring goes back to the
+            // template. Written down when the button comes up, not here.
+            Message::StampChanged(stamp) => {
+                self.stamp = stamp;
+                if let Some(size) = self.stamp_size_pt() {
+                    self.settings.active_mut().set_size_pt(size);
+                    self.show_box_size();
+                }
+            }
             Message::ZoomIn | Message::ZoomOut | Message::ZoomReset => {
                 self.zoom = match message {
                     Message::ZoomIn => next_zoom(self.zoom, 1),
@@ -400,6 +458,8 @@ impl State {
                 self.settings.active = index.min(self.settings.templates.len() - 1);
                 self.select(None);
                 self.load_signature();
+                self.fit_stamp();
+                self.show_box_size();
                 self.save_settings();
             }
             Message::TemplateAdded => {
@@ -407,6 +467,8 @@ impl State {
                 self.settings.active = self.settings.templates.len() - 1;
                 self.select(None);
                 self.load_signature();
+                self.fit_stamp();
+                self.show_box_size();
                 self.save_settings();
             }
             Message::TemplateDuplicated => {
@@ -415,6 +477,8 @@ impl State {
                 self.settings.templates.push(copy);
                 self.settings.active = self.settings.templates.len() - 1;
                 self.select(None);
+                self.fit_stamp();
+                self.show_box_size();
                 self.save_settings();
             }
             // The last one never goes: with no templates there is nothing to
@@ -426,12 +490,40 @@ impl State {
                 self.settings.active = gone.min(self.settings.templates.len() - 1);
                 self.select(None);
                 self.load_signature();
+                self.fit_stamp();
+                self.show_box_size();
                 self.save_settings();
             }
             Message::TemplateDeleted => {}
             Message::TemplateRenamed(name) => {
                 self.settings.active_mut().name = name;
                 self.save_settings();
+            }
+            // What was typed stays typed. Out of range or halfway through a
+            // number, it simply does not reach the box yet: the field is the
+            // one place where an unfinished answer has to be allowed to sit.
+            Message::BoxSized { side, mm } if side < 2 => {
+                self.box_size[side] = mm;
+
+                let typed = self.box_size[side].trim().replace(',', ".").parse::<f32>();
+                let mut size = self.settings.active().size_mm;
+                if let Ok(mm) = typed
+                    && (cie_firma::MIN_SIDE_MM..=cie_firma::MAX_SIDE_MM).contains(&mm)
+                {
+                    size[side] = mm;
+                    self.settings.active_mut().set_size_mm(size);
+                    self.fit_stamp();
+                    self.save_settings();
+                }
+            }
+            Message::BoxSized { .. } => {}
+            // The third way of saying how big the box is, after the two fields
+            // and the rectangle on the page. All three end up in the same
+            // place, and the other two have to show what this one did.
+            Message::BoxStretched(size) => {
+                self.settings.active_mut().set_size_mm(size);
+                self.fit_stamp();
+                self.show_box_size();
             }
             Message::SnappingToggled(on) => {
                 self.settings.snapping = on;
@@ -477,9 +569,10 @@ impl State {
             Message::PieceMoved(rect) => {
                 if let Some(piece) = self.selected_piece_mut() {
                     piece.rect = rect;
-                    self.save_settings();
                 }
             }
+            // What the drag has been doing all along, written down once.
+            Message::DragEnded => self.save_settings(),
             Message::PieceResized(size) => {
                 if let Some(piece) = self.selected_piece_mut() {
                     piece.size = size.clamp(4.0, 48.0);
@@ -569,6 +662,9 @@ impl State {
         self.open_error = None;
         self.document = None;
         self.page = 0;
+        // Somewhere to be while there is no document. The box is a real size,
+        // and a real size is only a fraction of a page once there is a page:
+        // `propose_stamp`, at the end, once this one has been read.
         self.stamp = DEFAULT_STAMP;
         self.zoom = 1.0;
         self.output_chosen = false;
@@ -598,6 +694,7 @@ impl State {
                 self.open_error = Some(t!("document.read_failed", error = e.to_string()).to_string());
             }
         }
+        self.propose_stamp();
         self.rasterise();
         self.refresh_output();
     }
@@ -684,22 +781,88 @@ impl State {
         }
     }
 
-    /// The signature box as it is on the page right now, in PDF points.
+    /// How big the signature box is, in PDF points.
     ///
     /// The editor needs both numbers, and for different reasons: the shape, so
     /// what is composed has the proportions it will really have, and the width,
     /// because that is what turns a type size in points into pixels on screen.
     /// Compose against the wrong width and every size in the editor is a lie.
     ///
-    /// `None` with no document open, when the editor falls back to the default
-    /// rectangle.
-    pub fn box_size_pt(&self) -> Option<(f32, f32)> {
+    /// The template's own, not the document's: the box is a size somebody
+    /// chose, and dragging the rectangle over a page writes that choice back
+    /// here, so the two can never drift apart. It is therefore an answer even
+    /// with nothing open, which is what lets a box be composed before there is
+    /// a document to put it on.
+    pub fn box_size_pt(&self) -> (f32, f32) {
+        self.settings.active().size_pt()
+    }
+
+    /// What the rectangle on the page currently measures, in points.
+    ///
+    /// `None` with no document open, and with a page of no size: both are the
+    /// cases where a fraction of the sheet says nothing about millimetres.
+    fn stamp_size_pt(&self) -> Option<(f32, f32)> {
         let doc = self.document.as_ref()?;
         let [x0, y0, x1, y1] = self.stamp;
         let (page_w, page_h) = doc.display_size(self.page);
 
         let (width, height) = ((x1 - x0) * page_w, (y1 - y0) * page_h);
         (width > 0.0 && height > 0.0).then_some((width, height))
+    }
+
+    /// Puts the template's box back in its two fields.
+    fn show_box_size(&mut self) {
+        self.box_size = written(self.settings.active().size_mm);
+    }
+
+    /// The template's box as a fraction of the page now showing.
+    ///
+    /// Capped at the whole sheet: a box wider than the paper cannot be put on
+    /// it, and a rectangle that ran off the edge would be one whose far corner
+    /// there is no way to grab.
+    fn box_share(&self) -> Option<(f32, f32)> {
+        let doc = self.document.as_ref()?;
+        let (page_w, page_h) = doc.display_size(self.page);
+        let (width, height) = self.settings.active().size_pt();
+
+        (page_w > 0.0 && page_h > 0.0)
+            .then(|| ((width / page_w).min(1.0), (height / page_h).min(1.0)))
+    }
+
+    /// Puts the rectangle back to the size the template says, leaving its top
+    /// left corner where it is.
+    ///
+    /// The corner rather than the middle: what somebody positions is the
+    /// beginning of the box, and a box that drifted sideways every time its
+    /// width was typed into would be impossible to place.
+    fn fit_stamp(&mut self) {
+        let Some((width, height)) = self.box_share() else {
+            return;
+        };
+        let [x0, y0, ..] = self.stamp;
+        let x0 = x0.clamp(0.0, (1.0 - width).max(0.0));
+        let y0 = y0.clamp(0.0, (1.0 - height).max(0.0));
+
+        self.stamp = [x0, y0, (x0 + width).min(1.0), (y0 + height).min(1.0)];
+    }
+
+    /// Where the box is proposed on a document just opened: the corner
+    /// [`DEFAULT_STAMP`] has always put it in, at the size the template asks
+    /// for.
+    ///
+    /// Anchored on the far corner, not the near one, because the proposal is
+    /// "bottom right of the page": a taller box has to grow up and to the
+    /// left, away from the margin, rather than off the sheet.
+    fn propose_stamp(&mut self) {
+        self.stamp = DEFAULT_STAMP;
+        let Some((width, height)) = self.box_share() else {
+            return;
+        };
+        let [.., x1, y1] = DEFAULT_STAMP;
+        let x0 = (x1 - width).max(0.0);
+        let y0 = (y1 - height).max(0.0);
+
+        self.stamp = [x0, y0, (x0 + width).min(1.0), (y0 + height).min(1.0)];
     }
 
     /// Which piece the editor has selected, if it is even open.
@@ -1187,6 +1350,176 @@ mod tests {
         let (mut state, dir) = with_a_pdf();
         state.update(Message::ShowTemplates);
         (state, dir)
+    }
+
+    /// The A4 fixture, in points, so a rectangle can be checked against a real
+    /// size rather than against another fraction.
+    const A4: (f32, f32) = (595.0, 842.0);
+
+    /// The box is as big as the template says, and the rectangle on the page
+    /// is that size worked out on this sheet.
+    #[test]
+    fn the_box_is_the_size_the_template_says() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::BoxSized { side: 0, mm: "50".to_string() });
+        state.update(Message::BoxSized { side: 1, mm: "20".to_string() });
+
+        let (width, height) = state.box_size_pt();
+        assert!((width - cie_firma::mm_to_pt(50.0)).abs() < 0.01, "{width}");
+
+        let [x0, y0, x1, y1] = state.stamp;
+        assert!(((x1 - x0) * A4.0 - width).abs() < 0.5, "{:?}", state.stamp);
+        assert!(((y1 - y0) * A4.1 - height).abs() < 0.5, "{:?}", state.stamp);
+        assert!(x0 >= 0.0 && y0 >= 0.0 && x1 <= 1.0 && y1 <= 1.0, "{:?}", state.stamp);
+    }
+
+    /// Resizing keeps the corner the box was put in, and never pushes it off
+    /// the sheet however big it is asked to be.
+    #[test]
+    fn a_resized_box_stays_where_it_was_put_and_on_the_page() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::StampChanged([0.10, 0.20, 0.30, 0.30]));
+
+        state.update(Message::BoxSized { side: 0, mm: "40".to_string() });
+        state.update(Message::BoxSized { side: 1, mm: "15".to_string() });
+        assert!((state.stamp[0] - 0.10).abs() < 1e-6, "{:?}", state.stamp);
+        assert!((state.stamp[1] - 0.20).abs() < 1e-6, "{:?}", state.stamp);
+
+        // Wider than the paper: it can only be the paper, and it has to stay
+        // on it or there is no corner left to take hold of. A4 is 210 mm
+        // across.
+        state.update(Message::BoxSized { side: 0, mm: "290".to_string() });
+        let [x0, y0, x1, y1] = state.stamp;
+        assert!(x0 >= 0.0 && y0 >= 0.0 && x1 <= 1.0 && y1 <= 1.0, "{:?}", state.stamp);
+        assert!((x1 - x0 - 1.0).abs() < 1e-6, "should be the whole width: {:?}", state.stamp);
+    }
+
+    /// Dragging the rectangle over the page is the other way of saying how big
+    /// the box is, so what it comes out measuring is what the template keeps.
+    #[test]
+    fn dragging_the_box_says_how_big_it_is() {
+        let (mut state, _dir) = with_a_pdf();
+        let (width, height) = (100.0, 50.0);
+
+        state.update(Message::StampChanged([
+            0.1,
+            0.1,
+            0.1 + width / A4.0,
+            0.1 + height / A4.1,
+        ]));
+
+        let [w, h] = state.settings.active().size_mm;
+        assert!((w - cie_firma::pt_to_mm(width)).abs() < 0.1, "{w}");
+        assert!((h - cie_firma::pt_to_mm(height)).abs() < 0.1, "{h}");
+    }
+
+    /// A document opens with the box the template asks for, in the corner it
+    /// has always been proposed in.
+    #[test]
+    fn an_opened_document_gets_the_template_box() {
+        let (mut state, dir) = with_a_pdf();
+        state.update(Message::BoxSized { side: 0, mm: "40".to_string() });
+        state.update(Message::BoxSized { side: 1, mm: "15".to_string() });
+
+        let path = dir.path().join("altro.pdf");
+        std::fs::write(&path, MINIMAL_PDF).unwrap();
+        state.update(Message::DocumentChosen(Some(path)));
+
+        let [x0, y0, x1, y1] = state.stamp;
+        assert!(((x1 - x0) * A4.0 - cie_firma::mm_to_pt(40.0)).abs() < 0.5, "{:?}", state.stamp);
+        assert!(((y1 - y0) * A4.1 - cie_firma::mm_to_pt(15.0)).abs() < 0.5, "{:?}", state.stamp);
+        // Bottom right, where `cie sign-pdf` has always put it.
+        assert!((x1 - DEFAULT_STAMP[2]).abs() < 1e-6 && (y1 - DEFAULT_STAMP[3]).abs() < 1e-6);
+    }
+
+    /// Each template carries its own box, and switching to one brings its size
+    /// with it.
+    #[test]
+    fn every_template_has_its_own_box() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::BoxSized { side: 0, mm: "40".to_string() });
+        state.update(Message::BoxSized { side: 1, mm: "15".to_string() });
+
+        state.update(Message::TemplateAdded);
+        assert_eq!(state.settings.active().size_mm, cie_firma::DEFAULT_SIZE_MM);
+        let fresh = state.stamp;
+
+        state.update(Message::TemplateChosen(0));
+        assert_eq!(state.settings.active().size_mm, [40.0, 15.0]);
+        assert_ne!(state.stamp, fresh, "the box did not follow the template");
+    }
+
+    /// The fields keep what was typed into them, and the box takes it as soon
+    /// as it is a size a box can be.
+    ///
+    /// A field that answered back on every keystroke could not be typed into
+    /// at all: clear `81` to put `60` in and the `8` would arrive back before
+    /// the `6` did.
+    #[test]
+    fn a_size_field_holds_what_was_typed_into_it() {
+        let (mut state, _dir) = with_a_pdf();
+        let before = state.settings.active().size_mm;
+
+        // Cleared to type into: the words go, the box stays.
+        state.update(Message::BoxSized { side: 0, mm: String::new() });
+        assert_eq!(state.box_size[0], "");
+        assert_eq!(state.settings.active().size_mm, before);
+
+        // Halfway through a number, and below anything a box can be: still
+        // only words.
+        state.update(Message::BoxSized { side: 0, mm: "6".to_string() });
+        assert_eq!(state.box_size[0], "6");
+        assert_eq!(state.settings.active().size_mm, before);
+
+        // And there it is.
+        state.update(Message::BoxSized { side: 0, mm: "60".to_string() });
+        assert_eq!(state.settings.active().size_mm[0], 60.0);
+
+        // The keyboard this is used on has a comma on it.
+        state.update(Message::BoxSized { side: 1, mm: "24,5".to_string() });
+        assert_eq!(state.settings.active().size_mm[1], 24.5);
+    }
+
+    /// Dragging the box is the other way of saying how big it is, so the
+    /// fields have to say what the drag made it.
+    #[test]
+    fn the_fields_follow_the_box_around() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::BoxSized { side: 0, mm: "60".to_string() });
+        assert_eq!(state.box_size[0], "60");
+
+        state.update(Message::StampChanged([0.1, 0.1, 0.1 + 100.0 / A4.0, 0.2]));
+        assert_eq!(state.box_size[0], "35.3", "{:?}", state.box_size);
+
+        // A template of its own, and the fields say so the moment it is
+        // switched to.
+        state.update(Message::TemplateAdded);
+        assert_eq!(state.box_size, ["81".to_string(), "24.7".to_string()]);
+    }
+
+    /// Pulling the box's own edge in the editor is the third way of saying how
+    /// big it is, and the other two have to show what it did.
+    #[test]
+    fn the_box_can_be_pulled_bigger_by_its_edge() {
+        let (mut state, _dir) = with_a_pdf();
+        state.update(Message::ShowTemplates);
+
+        state.update(Message::BoxStretched([100.0, 40.0]));
+
+        assert_eq!(state.settings.active().size_mm, [100.0, 40.0]);
+        assert_eq!(state.box_size, ["100".to_string(), "40".to_string()]);
+
+        let [x0, y0, x1, y1] = state.stamp;
+        assert!(((x1 - x0) * A4.0 - cie_firma::mm_to_pt(100.0)).abs() < 0.5, "{:?}", state.stamp);
+        assert!(((y1 - y0) * A4.1 - cie_firma::mm_to_pt(40.0)).abs() < 0.5, "{:?}", state.stamp);
+
+        // Pulled past what a box can be, it stops at what a box can be rather
+        // than at nothing.
+        state.update(Message::BoxStretched([0.0, 0.0]));
+        assert_eq!(
+            state.settings.active().size_mm,
+            [cie_firma::MIN_SIDE_MM, cie_firma::MIN_SIDE_MM]
+        );
     }
 
     /// A piece lands in the box selected, because the next thing anybody does

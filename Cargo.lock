@@ -6808,7 +6808,6 @@ dependencies = [
 [[package]]
 name = "underskrift"
 version = "0.1.4"
-source = "git+https://github.com/AttilioGreco/underskrift?branch=main#9fbd3f3044459ce622cc5b2b315297b41b3aff44"
 dependencies = [
  "base64",
  "chrono",

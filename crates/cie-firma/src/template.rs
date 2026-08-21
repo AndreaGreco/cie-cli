@@ -186,6 +186,47 @@ pub struct Template {
     /// the document showing through and still want an edge, or neither.
     #[serde(default = "yes")]
     pub border: bool,
+
+    /// How big the box is, `[width, height]` in **millimetres**.
+    ///
+    /// A signature block is a physical thing. Kept as a fraction of the sheet
+    /// it would come out one size on an A4 and another on a US Letter, and
+    /// every type size composed against it would mean something different on
+    /// each — so it is a real measurement, and the fractions the preview drags
+    /// around are worked out from it and the page it lands on.
+    ///
+    /// Everything that changes it goes through [`Template::set_size_mm`] or
+    /// [`Template::set_size_pt`], so nothing anywhere ends up with a box too
+    /// small to hold a line of text, or larger than a sheet of paper.
+    #[serde(default = "default_size")]
+    pub size_mm: [f32; 2],
+}
+
+/// The box every template starts at: the 230 x 70 points `cie sign-pdf` has
+/// always used, to the tenth of a millimetre.
+pub const DEFAULT_SIZE_MM: [f32; 2] = [81.0, 24.7];
+
+/// The smallest and largest box, in millimetres.
+///
+/// The floor is about what a single readable line needs; the ceiling is the
+/// long side of an A4, so a box can be as big as any sheet this program is
+/// likely to meet and no bigger.
+pub const MIN_SIDE_MM: f32 = 10.0;
+pub const MAX_SIDE_MM: f32 = 297.0;
+
+/// Templates written before the box had a size of its own had that size all
+/// the same — it was simply the only one there was.
+fn default_size() -> [f32; 2] {
+    DEFAULT_SIZE_MM
+}
+
+/// Millimetres into PDF points, and back. A point is 1/72 of an inch.
+pub fn mm_to_pt(mm: f32) -> f32 {
+    mm * 72.0 / 25.4
+}
+
+pub fn pt_to_mm(pt: f32) -> f32 {
+    pt * 25.4 / 72.0
 }
 
 /// Templates written before there was anything to say about paper had both.
@@ -215,6 +256,7 @@ impl Template {
             image: None,
             background: true,
             border: true,
+            size_mm: DEFAULT_SIZE_MM,
         }
     }
 
@@ -235,7 +277,66 @@ impl Template {
             image: Some(image),
             background: true,
             border: true,
+            size_mm: DEFAULT_SIZE_MM,
         }
+    }
+
+    /// The box in PDF points, which is what everything that draws it needs.
+    pub fn size_pt(&self) -> (f32, f32) {
+        (mm_to_pt(self.size_mm[0]), mm_to_pt(self.size_mm[1]))
+    }
+
+    /// Sets the box, in millimetres, without moving or resizing anything in
+    /// it, and keeping it between [`MIN_SIDE_MM`] and [`MAX_SIDE_MM`].
+    ///
+    /// A number typed into a field arrives here, and so does one worked out
+    /// from a rectangle somebody dragged. Neither is trusted: a nought in the
+    /// width field would otherwise be a box with nothing in it and no corner
+    /// left to drag it back out by.
+    ///
+    /// The pieces are the reason this is not a one-line setter. They are kept
+    /// as fractions of the box, so a box made wider would take every one of
+    /// them with it — the name would get wider, the rule under it would get
+    /// wider, the picture would grow — and making room at the side of a stamp
+    /// would quietly re-typeset the whole thing. What is in the box is a
+    /// layout in millimetres that happens to be *stored* as fractions, so the
+    /// fractions are worked out again against the new size and every piece
+    /// keeps the millimetres it had.
+    ///
+    /// Nothing is clamped back inside. A box pulled narrower leaves the pieces
+    /// that no longer fit hanging over the edge — visible in the editor, and
+    /// clipped away in the document, which is the honest answer to a box too
+    /// small for what is in it. It is also the reversible one: pulled back out
+    /// again, the layout is exactly what it was.
+    pub fn set_size_mm(&mut self, size: [f32; 2]) {
+        let sane = |mm: f32, instead: f32| {
+            if mm.is_finite() {
+                mm.clamp(MIN_SIDE_MM, MAX_SIDE_MM)
+            } else {
+                instead
+            }
+        };
+        let was = self.size_mm;
+        self.size_mm = [
+            sane(size[0], DEFAULT_SIZE_MM[0]),
+            sane(size[1], DEFAULT_SIZE_MM[1]),
+        ];
+
+        // A piece a tenth of a box wide is a fifth of a box half as wide.
+        let (kx, ky) = (
+            was[0] / self.size_mm[0].max(f32::EPSILON),
+            was[1] / self.size_mm[1].max(f32::EPSILON),
+        );
+        for placed in &mut self.pieces {
+            let [x0, y0, x1, y1] = placed.rect;
+            placed.rect = [x0 * kx, y0 * ky, x1 * kx, y1 * ky];
+        }
+    }
+
+    /// The same, from a size in points — what a rectangle dragged over a page
+    /// measures out to.
+    pub fn set_size_pt(&mut self, (width, height): (f32, f32)) {
+        self.set_size_mm([pt_to_mm(width), pt_to_mm(height)]);
     }
 
     /// True when a piece of this kind is somewhere in the box.
@@ -248,26 +349,61 @@ impl Template {
     /// This is the whole of the resolution: the renderer runs inside
     /// underskrift, long after the certificate has been read and dropped, so
     /// it can carry text but never go and look for it.
+    ///
+    /// The pieces with nothing to say are left out — a reason nobody gave, a
+    /// card with no tax code on it — because a document must not have an empty
+    /// line in it. For the editor, which cannot afford a list with holes in
+    /// it, see [`Template::compose`].
     pub fn resolve(&self, facts: &Facts) -> Vec<Drawn> {
         self.pieces
             .iter()
             .filter_map(|placed| {
-                let ink = match &placed.piece {
-                    Piece::Image => Ink::Picture,
-                    Piece::Caption => Ink::Line("Firmato digitalmente da".to_string()),
-                    Piece::Holder => Ink::Line(facts.holder.clone()),
-                    Piece::TaxCode => Ink::Line(format!("C.F. {}", facts.tax_code.as_ref()?)),
-                    Piece::Date => Ink::Line(format!("Data: {}", facts.when)),
-                    Piece::Reason => Ink::Line(format!("Motivo: {}", facts.reason.as_ref()?)),
-                    Piece::Text { content } => Ink::Line(content.clone()),
-                };
                 Some(Drawn {
                     placed: placed.clone(),
-                    ink,
+                    ink: ink(placed, facts)?,
                 })
             })
             .collect()
     }
+
+    /// The same, keeping every piece at its own index.
+    ///
+    /// The editor holds a piece by its number in `pieces`: that number is what
+    /// a click selects, what a drag moves and what a delete removes. Handed
+    /// [`Template::resolve`]'s list it would be holding numbers into a
+    /// different list — one short of this one for every piece with nothing to
+    /// say — and everything past the gap would be off by one. Clicking a piece
+    /// would select its neighbour, dragging it would move something that is
+    /// not on screen and leave the piece under the hand where it was, and the
+    /// only way out anybody could find was to delete the piece and put a new
+    /// one back, which worked only because the delete finally took the empty
+    /// piece away.
+    ///
+    /// So nothing is dropped here. A piece with nothing to say gets
+    /// [`Ink::Nothing`]: it keeps its rectangle, and the rectangle is what the
+    /// editor is really made of.
+    pub fn compose(&self, facts: &Facts) -> Vec<Drawn> {
+        self.pieces
+            .iter()
+            .map(|placed| Drawn {
+                placed: placed.clone(),
+                ink: ink(placed, facts).unwrap_or(Ink::Nothing),
+            })
+            .collect()
+    }
+}
+
+/// What one piece says, or `None` when it has nothing to say today.
+fn ink(placed: &Placed, facts: &Facts) -> Option<Ink> {
+    Some(match &placed.piece {
+        Piece::Image => Ink::Picture,
+        Piece::Caption => Ink::Line("Firmato digitalmente da".to_string()),
+        Piece::Holder => Ink::Line(facts.holder.clone()),
+        Piece::TaxCode => Ink::Line(format!("C.F. {}", facts.tax_code.as_ref()?)),
+        Piece::Date => Ink::Line(format!("Data: {}", facts.when)),
+        Piece::Reason => Ink::Line(format!("Motivo: {}", facts.reason.as_ref()?)),
+        Piece::Text { content } => Ink::Line(content.clone()),
+    })
 }
 
 /// What the card and the clock had to say.
@@ -325,6 +461,11 @@ pub struct Drawn {
 pub enum Ink {
     Line(String),
     Picture,
+    /// Nothing, today: a reason nobody gave, a card with no tax code on it.
+    ///
+    /// Only [`Template::compose`] produces one, and only the editor sees it:
+    /// what goes in the document never has an empty piece in it.
+    Nothing,
 }
 
 /// A rectangle of the box, in PDF points with the origin at the bottom left.
@@ -371,7 +512,11 @@ impl AppearanceRenderer for Renderer {
                 Ink::Line(text) if !text.is_empty() => {
                     line(&mut content, &mut fonts, &drawn.placed, text, rect)
                 }
-                Ink::Line(_) => {}
+                // Nothing to draw, and nothing to complain about: an empty
+                // line is a piece whose words the card had none of. `Nothing`
+                // never reaches the renderer at all — only the editor composes
+                // one — but the match has to say so out loud.
+                Ink::Line(_) | Ink::Nothing => {}
                 Ink::Picture => {
                     if let Some(image) = &self.image {
                         picture(&mut content, &mut images, image, &drawn.placed, rect);
@@ -577,7 +722,7 @@ mod tests {
             .iter()
             .filter_map(|d| match &d.ink {
                 Ink::Line(text) => Some(text.as_str()),
-                Ink::Picture => None,
+                Ink::Picture | Ink::Nothing => None,
             })
             .collect();
 
@@ -590,6 +735,115 @@ mod tests {
         assert_eq!(holder.placed.rect, [0.04, 0.22, 0.96, 0.44]);
     }
 
+    /// The editor is handed every piece at its own number, including the ones
+    /// with nothing to say.
+    ///
+    /// This is the off-by-one that made a piece unmovable. The editor holds a
+    /// piece by its index; `resolve` drops the empty ones; so from the first
+    /// gap onwards every rectangle on screen belonged to the piece before it.
+    /// Dragging one moved a piece that was not on screen, and the piece under
+    /// the hand never moved at all.
+    #[test]
+    fn the_editor_is_given_every_piece_at_its_own_number() {
+        let template = Template::classic("x");
+        let bare = Facts {
+            tax_code: None,
+            reason: None,
+            ..facts()
+        };
+
+        let composed = template.compose(&bare);
+        assert_eq!(composed.len(), template.pieces.len());
+        for (index, drawn) in composed.iter().enumerate() {
+            assert_eq!(drawn.placed, template.pieces[index], "piece {index}");
+        }
+
+        // Caption, holder, tax code, date, reason: the two with nothing to say
+        // keep their place and say nothing.
+        assert!(matches!(composed[2].ink, Ink::Nothing), "{:?}", composed[2].ink);
+        assert!(matches!(composed[4].ink, Ink::Nothing), "{:?}", composed[4].ink);
+
+        // The document, meanwhile, still gets no empty lines.
+        assert_eq!(template.resolve(&bare).len(), 3);
+    }
+
+    /// The box is a real size, and one that cannot be made absurd: a nought in
+    /// the width field would be a box with no corner left to drag it back out
+    /// by.
+    #[test]
+    fn a_box_can_be_any_size_within_reason() {
+        let mut template = Template::classic("x");
+        assert_eq!(template.size_mm, DEFAULT_SIZE_MM);
+
+        template.set_size_mm([60.0, 30.0]);
+        assert_eq!(template.size_mm, [60.0, 30.0]);
+        assert!((template.size_pt().0 - 170.08).abs() < 0.01, "{:?}", template.size_pt());
+
+        template.set_size_mm([0.0, 10_000.0]);
+        assert_eq!(template.size_mm, [MIN_SIDE_MM, MAX_SIDE_MM]);
+
+        // A rectangle dragged over a page arrives in points, and arrives at
+        // the same place.
+        template.set_size_pt((mm_to_pt(45.0), mm_to_pt(15.0)));
+        assert!((template.size_mm[0] - 45.0).abs() < 0.01, "{:?}", template.size_mm);
+        assert!((template.size_mm[1] - 15.0).abs() < 0.01, "{:?}", template.size_mm);
+
+        // Not a number at all — the two ways a parse can go strange — falls
+        // back to the box every template starts at, rather than to nothing.
+        template.set_size_mm([f32::NAN, f32::INFINITY]);
+        assert_eq!(template.size_mm, DEFAULT_SIZE_MM);
+    }
+
+    /// Resizing the box leaves everything in it exactly where it was, and
+    /// exactly the size it was.
+    ///
+    /// The pieces are stored as fractions, so without this a box pulled wider
+    /// would pull every piece wider with it: making room at the side of a
+    /// stamp would re-typeset the stamp.
+    #[test]
+    fn resizing_the_box_leaves_the_pieces_alone() {
+        let mut template = Template::classic("x");
+        template.set_size_mm([80.0, 20.0]);
+
+        // Where the holder's line sits, in millimetres from the corner.
+        let millimetres = |t: &Template| {
+            let [x0, y0, x1, y1] = t.pieces[1].rect;
+            [
+                x0 * t.size_mm[0],
+                y0 * t.size_mm[1],
+                x1 * t.size_mm[0],
+                y1 * t.size_mm[1],
+            ]
+        };
+        let before = millimetres(&template);
+
+        template.set_size_mm([120.0, 45.0]);
+        let after = millimetres(&template);
+        for (a, b) in before.iter().zip(after.iter()) {
+            assert!((a - b).abs() < 0.01, "{before:?} became {after:?}");
+        }
+
+        // And the way back is the way back: nothing is clamped on the way
+        // through, so a box pulled in and out again is the box it was.
+        let fractions = template.pieces[1].rect;
+        template.set_size_mm([MIN_SIDE_MM, MIN_SIDE_MM]);
+        template.set_size_mm([120.0, 45.0]);
+        for (a, b) in fractions.iter().zip(template.pieces[1].rect.iter()) {
+            assert!((a - b).abs() < 1e-4, "{fractions:?} became {:?}", template.pieces[1].rect);
+        }
+    }
+
+    /// A settings file written before the box had a size of its own still had
+    /// that size — it was simply the only one there was.
+    #[test]
+    fn a_template_from_before_the_size_still_has_one() {
+        let raw = r#"{"name":"vecchio","pieces":[],"background":true,"border":false}"#;
+        let template: Template = serde_json::from_str(raw).expect("should still read");
+
+        assert_eq!(template.size_mm, DEFAULT_SIZE_MM);
+        assert!(!template.border);
+    }
+
     /// What the card says goes in, not what the template says. A template that
     /// could carry a name would be a template that could carry the wrong one.
     #[test]
@@ -599,7 +853,7 @@ mod tests {
             .iter()
             .filter_map(|d| match &d.ink {
                 Ink::Line(text) => Some(text.clone()),
-                Ink::Picture => None,
+                Ink::Picture | Ink::Nothing => None,
             })
             .collect();
 
@@ -731,6 +985,7 @@ mod tests {
                 image: None,
                 background: true,
                 border: true,
+                size_mm: DEFAULT_SIZE_MM,
             };
             let content = String::from_utf8(render(&template, None).content).unwrap();
             let tm = content.lines().find(|l| l.ends_with(" Tm")).unwrap().to_string();
@@ -847,6 +1102,7 @@ mod tests {
                 image: None,
                 background: true,
                 border: true,
+                size_mm: DEFAULT_SIZE_MM,
             };
             let content =
                 String::from_utf8(render(&template, Some(picture())).content).unwrap();
@@ -927,6 +1183,7 @@ mod tests {
                 image: None,
                 background: true,
                 border: true,
+                size_mm: DEFAULT_SIZE_MM,
             };
             let content =
                 String::from_utf8(render(&template, Some(picture())).content).unwrap();

@@ -116,9 +116,15 @@ stamp:
   reason:
     it: Motivo
     en: Reason
+  certify_section:
+    it: Certificazione
+    en: Certification
   certify:
     it: Certifica il documento
     en: Certify the document
+  certify_what:
+    it: "Una firma di certificazione scrive nel documento che cosa si potrà ancora cambiare dopo di essa. Un PDF ne ammette una sola, ed è la prima firma. Senza spunta questa è una normale firma di approvazione, che non toglie niente a chi firma dopo."
+    en: "A certifying signature writes into the document what may still be changed after it. A PDF takes only one, and it is the first signature. Unticked, this is an ordinary approval signature and takes nothing away from whoever signs next."
   certify_1:
     it: nessuna modifica
     en: no changes allowed
@@ -150,9 +156,6 @@ template:
   handwritten:
     it: Firma autografa
     en: Handwritten signature
-  section:
-    it: Template
-    en: Template
   title:
     it: Template di firma
     en: Signature templates
@@ -237,6 +240,12 @@ template:
   remove_piece:
     it: Togli dal riquadro
     en: Remove from the box
+  box_size:
+    it: "Riquadro"
+    en: "Box"
+  millimetres:
+    it: mm
+    en: mm
   background:
     it: Sfondo bianco
     en: White background
@@ -247,8 +256,8 @@ template:
     it: Aggancia ai bordi e alle mezzerie (Alt per invertire)
     en: Latch on to edges and middles (Alt inverts it)
   paper_hint:
-    it: Senza sfondo il documento si vede attraverso il riquadro.
-    en: With no background the document shows through the box.
+    it: "Senza sfondo il documento si vede attraverso; il bordo tratteggiato non viene stampato."
+    en: "With no background the document shows through; the dashed edge is not printed."
   picture:
     it: Immagine
     en: Picture

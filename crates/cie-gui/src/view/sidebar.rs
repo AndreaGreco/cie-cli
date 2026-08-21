@@ -2,9 +2,9 @@
 
 use iced::widget::{
     button, checkbox, column, container, pick_list, radio, row, scrollable, space, text,
-    text_input, MouseArea,
+    text_input, tooltip, MouseArea,
 };
-use iced::{Alignment, Element, Fill};
+use iced::{Alignment, Border, Color, Element, Fill, Length};
 use rust_i18n::t;
 
 use cie_firma::Piece;
@@ -20,7 +20,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     if state.shows_preview() {
         sections = sections.push(stamp(state));
-        sections = sections.push(template(state));
+        sections = sections.push(certification(state));
     }
     if state.card.stored.is_some() {
         sections = sections.push(card(state));
@@ -178,67 +178,18 @@ impl std::fmt::Display for Level {
     }
 }
 
-fn stamp(state: &State) -> Element<'_, Message> {
-    let mut body = column![
-        row![
-            text(t!("stamp.reason")).size(13),
-            text_input("", &state.reason)
-                .on_input(Message::ReasonChanged)
-                .style(theme::field)
-                .size(14),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center),
-        checkbox(state.certify.is_some())
-            .label(t!("stamp.certify").into_owned())
-            .on_toggle(Message::CertifyToggled)
-            .size(15)
-            .text_size(14),
-    ]
-    .spacing(10);
-
-    if let Some(level) = state.certify {
-        body = body.push(
-            pick_list(LEVELS, Some(Level(level)), |l| Message::CertifyLevel(l.0))
-                .text_size(13)
-                .padding(6),
-        );
-    }
-
-    body = body
-        .push(
-            button(text(t!("stamp.reset")).size(13))
-                .style(theme::quiet)
-                .on_press(Message::StampReset),
-        )
-        .push(
-            text(t!("stamp.facsimile"))
-                .size(11)
-                .style(iced::widget::text::secondary),
-        );
-
-    section(t!("stamp.section"), body)
-}
-
-/// `pick_list` needs `Display`, and a `Template` has a name but no opinion
-/// about how a list should show it.
-#[derive(Debug, Clone, PartialEq)]
-struct Choice {
-    index: usize,
-    name: String,
-}
-
-impl std::fmt::Display for Choice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name)
-    }
-}
-
-/// Which composed box signs this document, and the way into the editor.
+/// The box that is about to be signed on to this document: which one it is,
+/// what it will say, and where it sits.
 ///
-/// The composing itself is not here. It needs room to drag things around in,
-/// and a sidebar 340 pixels wide is not room.
-fn template(state: &State) -> Element<'_, Message> {
+/// The template picker is the first thing in it. It used to be a card of its
+/// own next to this one, which put the box and the box's contents on screen as
+/// two decisions instead of the one they are: the template *is* what is in
+/// that rectangle, and choosing another one changes what the preview draws
+/// inside it a foot away.
+///
+/// The composing itself is still not here. It needs room to drag things around
+/// in, and a sidebar 340 pixels wide is not room.
+fn stamp(state: &State) -> Element<'_, Message> {
     let choices: Vec<Choice> = state
         .settings
         .templates
@@ -272,7 +223,135 @@ fn template(state: &State) -> Element<'_, Message> {
         );
     }
 
-    section(t!("template.section"), body)
+    body = body
+        .push(rule())
+        .push(
+            row![
+                text(t!("stamp.reason")).size(13),
+                text_input("", &state.reason)
+                    .on_input(Message::ReasonChanged)
+                    .style(theme::field)
+                    .size(14),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .push(
+            button(text(t!("stamp.reset")).size(13))
+                .style(theme::quiet)
+                .on_press(Message::StampReset),
+        )
+        .push(
+            text(t!("stamp.facsimile"))
+                .size(11)
+                .style(iced::widget::text::secondary),
+        );
+
+    section(t!("stamp.section"), body)
+}
+
+/// A `?` that says what a setting is, a moment after the pointer stops on it.
+///
+/// A caption rather than a line of prose under the control. What certification
+/// is takes three lines to explain, and three lines sitting there for good
+/// would crowd out the one decision the card is asking for — while a setting
+/// nobody can find out the meaning of is a setting nobody touches.
+fn explain<'a>(what: std::borrow::Cow<'a, str>) -> Element<'a, Message> {
+    let badge = container(
+        text("?")
+            .size(11)
+            .font(theme::UI_STRONG)
+            .style(iced::widget::text::secondary),
+    )
+    .center(Length::Fixed(17.0))
+    .style(|t: &iced::Theme| container::Style {
+        border: Border {
+            // Round: a circle is the shape this means everywhere, and a square
+            // one reads as a button that does something when pressed.
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color {
+                a: 0.35,
+                ..t.extended_palette().background.base.text
+            },
+        },
+        ..Default::default()
+    });
+
+    tooltip(
+        badge,
+        container(text(what.into_owned()).size(12))
+            .style(theme::floating)
+            .padding([7, 10])
+            .max_width(280.0),
+        // Left, not below: the badge sits at the right edge of a sidebar that
+        // is itself at the right edge of the window, and a caption dropped
+        // below it would be a caption half off the screen.
+        tooltip::Position::Left,
+    )
+    .into()
+}
+
+/// A hairline across a card, between two things that belong in it for
+/// different reasons.
+fn rule<'a>() -> Element<'a, Message> {
+    container(space::vertical().height(1))
+        .width(Fill)
+        .style(|t: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color {
+                a: 0.15,
+                ..t.extended_palette().background.base.text
+            })),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Certification, which is not about the box at all.
+///
+/// It rode along in the box's card for as long as the box's card was where the
+/// PAdES-only settings went. It is a permission written into the document —
+/// what anybody may still change after this signature — and it is no more part
+/// of the rectangle than the file name is.
+fn certification(state: &State) -> Element<'_, Message> {
+    let mut body = column![
+        row![
+            checkbox(state.certify.is_some())
+                .label(t!("stamp.certify").into_owned())
+                .on_toggle(Message::CertifyToggled)
+                .size(15)
+                .text_size(14),
+            space::horizontal(),
+            explain(t!("stamp.certify_what")),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    ]
+    .spacing(10);
+
+    if let Some(level) = state.certify {
+        body = body.push(
+            pick_list(LEVELS, Some(Level(level)), |l| Message::CertifyLevel(l.0))
+                .text_size(13)
+                .padding(6),
+        );
+    }
+
+    section(t!("stamp.certify_section"), body)
+}
+
+/// `pick_list` needs `Display`, and a `Template` has a name but no opinion
+/// about how a list should show it.
+#[derive(Debug, Clone, PartialEq)]
+struct Choice {
+    index: usize,
+    name: String,
+}
+
+impl std::fmt::Display for Choice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name)
+    }
 }
 
 /// Only shown once the keyring knows this card: an empty "no PIN saved" card
