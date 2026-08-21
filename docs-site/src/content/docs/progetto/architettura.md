@@ -40,7 +40,9 @@ crates/
 │       ├── signer.rs            CieSigner: la carta come CryptoSigner
 │       ├── pades.rs             PAdES B-B, riquadro visibile
 │       ├── cades.rs             CAdES enveloping (.p7m)
-│       └── detached.rs          firma RSA grezza, con verifica locale
+│       ├── detached.rs          firma RSA grezza, con verifica locale
+│       └── keyring.rs           il PIN nel portachiavi, e il lucchetto che
+│                                gli rimette prima di ogni lettura
 ├── cie-pgp/                     certificazione OpenPGP
 │   └── src/
 │       ├── signer.rs            la carta come firmatario Sequoia

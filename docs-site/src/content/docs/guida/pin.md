@@ -37,6 +37,9 @@ Gestione credenziali su Windows, Portachiavi su macOS, il portachiavi di GNOME s
 Firma CIE non scrive nessun file suo: tutti i secret vengono custoditi dal sistema operativo, che li tiene
 cifrato, e lo sblocca quando entri nella tua sessione (Login utente).
 
+Attenzione pero': salvarlo non vuol dire consegnarlo a chiunque passi di li'.
+Vedi [Salvato non vuol dire aperto](#salvato-non-vuol-dire-aperto).
+
 ## Oppure no
 
 Rispondere di no è una scelta legittima, ed è quella predefinita: da riga di
@@ -49,6 +52,32 @@ verifica riuscita la domanda torna. Se ti dà fastidio,
 [scrivilo](https://github.com/AttilioGreco/cie-cli/issues).
 :::
 
+## Salvato non vuol dire aperto
+
+Salvare il PIN non lo rende gratuito. Ogni volta che Firma CIE deve usarlo,
+prima **richiude a chiave** la voce nel portachiavi: il sistema ti chiede la
+password prima di consegnarlo, anche se hai fatto login poco fa e anche se hai
+firmato un altro documento un minuto prima.
+
+Il portachiavi ti risparmia le otto cifre della carta - quelle che se sbagli
+tre volte te la bloccano - ma non ti risparmia di dimostrare che davanti al
+computer ci sei ancora tu. Una sessione lasciata aperta non è un'autorizzazione
+a firmare.
+
+:::note[Su Linux si richiude tutto il portachiavi]
+GNOME sa chiudere a chiave un portachiavi intero, non la singola voce. Quindi
+per un istante si chiude anche il resto di quello che c'è dentro, e la password
+che digiti lo riapre tutto insieme. È comunque la stessa password che il
+sistema ti avrebbe chiesto per la sola voce della carta.
+:::
+
+:::caution[Su Windows e macOS questo non succede]
+Vale dove c'è secret-service, cioè su Linux. Gestione credenziali di Windows
+non ha un lucchetto da rimettere, e il Portachiavi di macOS vuole che la regola
+sia decisa quando il segreto viene creato. Su quei due sistemi il PIN salvato
+resta raggiungibile senza chiedere niente, come è sempre stato.
+:::
+
 ## Cosa protegge il portachiavi, e cosa no
 
 | | |
@@ -56,6 +85,7 @@ verifica riuscita la domanda torna. Se ti dà fastidio,
 | Qualcuno ti ruba il computer o il disco | protetto: il PIN è cifrato |
 | Un'altra persona che usa lo stesso computer con il suo utente | protetto |
 | Chi va a curiosare fra i tuoi file | protetto: non c'è nessun file da leggere |
+| Qualcuno che si siede al tuo posto mentre la sessione è aperta | protetto su Linux: il PIN salvato non esce senza la password del portachiavi |
 | Un programma malevolo che gira **come te**, mentre la sessione è aperta | **non protetto** |
 
 L'ultima riga vale per qualunque password nel portachiavi, non solo per questa:
@@ -72,7 +102,10 @@ Ogni CIE ha la sua voce nel portachiavi, riconosciuta dal numero della carta che
 :::caution[Attenzione se condividete l'utente del computer]
 Per quanto sia una pratica comune, condividere un utente del computer con altre persone non è una buona idea.  
 Anche se siete in famiglia, sarebbe bene avere un utente ciascuno, e ognuno ha le sue password.  
-Una volta salvato nel porta chiavi, il PIN è disponibile a chiunque usi quell'utente, senza bisogno di digitarlo, gli bastera avere la carta in mano.  
+Su Windows e macOS, una volta salvato nel portachiavi il PIN è disponibile a
+chiunque usi quell'utente senza bisogno di digitarlo: gli basterà avere la carta
+in mano. Su Linux gli servirà anche la password del portachiavi, che è la tua -
+ma se l'utente è in comune, è probabile che sia in comune anche quella.  
 :::
 
 Insieme al PIN vengono ricordati nome, cognome e codice fiscale letti dalla  
@@ -107,6 +140,11 @@ portachiavi del sistema, con la stessa protezione di tutte le tue altre password
 
 `cie` cerca il PIN in quest'ordine: l'opzione `--pin` se gliela dai, poi il
 portachiavi, poi te lo chiede.
+
+Se arriva dal portachiavi, prima il sistema ti chiede la password - vedi
+[Salvato non vuol dire aperto](#salvato-non-vuol-dire-aperto). Con `--pin` il
+portachiavi non viene nemmeno aperto, quindi non chiede niente: è il motivo per
+cui quell'opzione esiste, ed è anche il motivo per cui è pericolosa.
 
 :::danger[`--pin` resta nella cronologia]
 `cie sign --pin 12345678 file` lascia il PIN nella storia della shell e lo

@@ -41,7 +41,9 @@ che è quello che contiene i tuoi dati: nome, cognome, codice fiscale. è il
 percorso che ogni firma ripete.
 
 Il PIN viene dal portachiavi se quella carta è stata ricordata, altrimenti te
-lo chiede senza mostrarlo a schermo. Vedi [Il PIN](/guida/pin/).
+lo chiede senza mostrarlo a schermo. Anche quando arriva dal portachiavi il
+sistema ti chiede la password prima di consegnarlo. Vedi
+[Il PIN](/guida/pin/#salvato-non-vuol-dire-aperto).
 
 Per tenerti una copia del certificato:
 

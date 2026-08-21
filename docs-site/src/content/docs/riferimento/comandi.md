@@ -17,6 +17,12 @@ L'opzione `--pin` esiste su tutti i comandi che toccano la carta. Senza, il PIN
 viene dal portachiavi di sistema o da un prompt che non mostra a schermo - vedi
 [Il PIN](/guida/pin/).
 
+Il portachiavi non è un lasciapassare: la voce viene richiusa a chiave prima di
+ogni lettura, quindi il sistema chiede la password anche a sessione aperta (solo
+su Linux, vedi [Il PIN](/guida/pin/#salvato-non-vuol-dire-aperto)). Con `--pin`
+il portachiavi non viene aperto affatto, ed è l'unica strada che non chiede
+niente a nessuno.
+
 :::danger
 `--pin` lascia il PIN nella cronologia della shell e visibile in `ps`. Esiste per
 gli script non interattivi.

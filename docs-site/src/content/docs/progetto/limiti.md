@@ -70,6 +70,14 @@ Sviluppato e verificato su Linux. Il codice non ha dipendenze di sistema oltre a
 PC/SC, e il portachiavi passa dalla stessa API su tutti e tre i sistemi, ma
 Windows e macOS non sono stati esercitati con una carta reale.
 
+**La riautenticazione sul PIN salvato è solo su Linux.** Prima di leggere il
+PIN dal portachiavi la voce viene richiusa a chiave, cosi' il sistema chiede la
+password anche a sessione aperta. Regge su secret-service e basta: Gestione
+credenziali di Windows non espone un lucchetto, e su macOS servirebbe una ACL
+`kSecAccess` decisa alla creazione del segreto, che l'API comune del portachiavi
+non permette di impostare. Su quei due sistemi il PIN salvato si legge senza
+chiedere niente.
+
 ## Note di licenza
 
 MIT. Le sequenze APDU, i parametri di protocollo e le costanti della coppia di

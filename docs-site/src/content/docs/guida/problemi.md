@@ -68,6 +68,27 @@ i fogli con calma che restare senza carta.
 Se il PIN era salvato nel portachiavi ed è cambiato, cancella la voce salvata
 (**Dimentica**, nella schermata del PIN) e ridigitalo.
 
+## Mi chiede la password del portachiavi ogni volta
+
+Non è un errore, è voluto. Il PIN salvato viene richiuso a chiave prima di
+ogni uso: il portachiavi ti risparmia le otto cifre della carta, non ti
+risparmia di dimostrare che al computer ci sei tu. Vedi
+[Il PIN](/guida/pin/#salvato-non-vuol-dire-aperto).
+
+Se non vuoi digitare nulla in una procedura automatica, da riga di comando c'è
+`--pin`, che salta il portachiavi - con i rischi scritti in
+[Comandi](/riferimento/comandi/).
+
+## Dopo aver firmato, un altro programma mi chiede la password del portachiavi
+
+Succede **su Linux**, e non è un guasto. GNOME sa chiudere a chiave solo un
+portachiavi intero, mai la singola voce: chiudendo quella della CIE si chiude
+per un attimo tutto quello che sta nello stesso portachiavi. Se in quell'istante
+un altro programma va a cercarsi una password, se la vede chiedere.
+
+La prima password che digiti riapre tutto insieme, quindi la cosa si risolve da
+sé.
+
 ## "PIN bloccato. Serve il PUK per sbloccarlo"
 
 La carta ha esaurito i tentativi. Il **PUK** è l'altro codice arrivato insieme

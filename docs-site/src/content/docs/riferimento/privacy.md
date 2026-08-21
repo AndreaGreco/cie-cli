@@ -85,7 +85,11 @@ Nome, cognome e codice fiscale ricordati insieme al PIN stanno **dentro** il
 segreto cifrato, mai negli attributi di ricerca. Su secret-service gli attributi
 sono metadati in chiaro, leggibili da qualunque processo sul bus di sessione.
 
-Vedi [Il PIN](/guida/pin/).
+Il segreto viene richiuso a chiave prima di ogni lettura, quindi tirarlo fuori
+costa la password del portachiavi anche a sessione già sbloccata - su Linux.
+L'etichetta in chiaro, cioè il numero della carta, resta leggibile comunque.
+
+Vedi [Il PIN](/guida/pin/#salvato-non-vuol-dire-aperto).
 
 ## Cosa `cie-cli` non fa
 

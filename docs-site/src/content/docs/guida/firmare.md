@@ -70,6 +70,11 @@ La casella **Ricordalo nel portachiavi** lo fa salvare nel gestore di password
 del tuo computer, cosi' la volta dopo non lo ridigiti. Puoi lasciarla vuota e
 digitarlo ogni volta - vedi [Il PIN](/guida/pin/).
 
+Le volte successive, al posto delle otto cifre ti compare la richiesta di
+password del portachiavi: il PIN salvato non esce senza, e la firma comincia con
+un passo in piu', **Sblocco del portachiavi**. Vedi [Salvato non vuol dire
+aperto](/guida/pin/#salvato-non-vuol-dire-aperto).
+
 Poi parte la firma vera e propria, e ci mette qualche secondo:
 
 ```
