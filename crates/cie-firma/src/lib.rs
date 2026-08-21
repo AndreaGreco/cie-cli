@@ -25,7 +25,7 @@ pub use detached::sign_detached;
 pub use pades::{sign_pdf, PadesOptions, Stamp};
 pub use signer::{card_id, identify, open_and_authenticate, CieSigner, Step};
 pub use stamp::{stamp_lines, StampFormat, StampImage, StampLayout};
-pub use template::{Align, Drawn, Facts, Ink, Piece, Placed, Template};
+pub use template::{across, fit, Align, Drawn, Facts, Ink, Piece, Placed, Template, Vertical};
 
 #[cfg(any(test, feature = "test-signer"))]
 pub use signer::fake;

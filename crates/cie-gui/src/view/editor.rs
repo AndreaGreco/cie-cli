@@ -10,7 +10,7 @@ use iced::widget::{
 use iced::{Alignment, Element, Fill, Length};
 use rust_i18n::t;
 
-use cie_firma::{Align, Facts, Piece};
+use cie_firma::{Align, Facts, Piece, Vertical};
 
 use crate::state::{Message, State};
 use crate::theme;
@@ -197,11 +197,13 @@ fn properties(state: &State, selected: Option<usize>) -> Element<'_, Message> {
             .into();
     };
 
-    // The picture is sized by its rectangle, so type and weight would be
-    // controls that do nothing to it.
+    let picture = placed.piece == Piece::Image;
     let mut controls = row![].spacing(10).align_y(Alignment::Center);
 
-    if placed.piece != Piece::Image {
+    // A picture is sized by its rectangle, so type and weight would be
+    // controls that do nothing to it. Alignment is not one of those: it is the
+    // only thing that says where in that rectangle the picture ends up.
+    if !picture {
         controls = controls
             .push(text(t!("template.size")).size(12))
             .push(
@@ -220,14 +222,27 @@ fn properties(state: &State, selected: Option<usize>) -> Element<'_, Message> {
                     .on_toggle(Message::PieceBoldToggled)
                     .size(14)
                     .text_size(12),
-            )
-            .push(
-                pick_list(Side::ALL.to_vec(), Some(Side(placed.align)), |s| {
-                    Message::PieceAligned(s.0)
-                })
-                .text_size(12)
-                .padding(6),
             );
+    }
+
+    controls = controls.push(
+        pick_list(Side::ALL.to_vec(), Some(Side(placed.align)), |s| {
+            Message::PieceAligned(s.0)
+        })
+        .text_size(12)
+        .padding(6),
+    );
+
+    // Only the picture has room left over up and down its rectangle: a line
+    // hangs from the top of its own, and you move the rectangle to move it.
+    if picture {
+        controls = controls.push(
+            pick_list(Level::ALL.to_vec(), Some(Level(placed.vertical)), |l| {
+                Message::PieceRaised(l.0)
+            })
+            .text_size(12)
+            .padding(6),
+        );
     }
 
     let mut body = column![controls].spacing(8);
@@ -331,6 +346,28 @@ impl std::fmt::Display for Side {
             Align::Left => t!("template.left"),
             Align::Centre => t!("template.centre"),
             Align::Right => t!("template.right"),
+        })
+    }
+}
+
+/// The other axis, and only the picture offers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Level(Vertical);
+
+impl Level {
+    const ALL: [Level; 3] = [
+        Level(Vertical::Top),
+        Level(Vertical::Middle),
+        Level(Vertical::Bottom),
+    ];
+}
+
+impl std::fmt::Display for Level {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&match self.0 {
+            Vertical::Top => t!("template.top"),
+            Vertical::Middle => t!("template.middle"),
+            Vertical::Bottom => t!("template.bottom"),
         })
     }
 }

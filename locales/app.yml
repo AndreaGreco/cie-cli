@@ -216,6 +216,15 @@ template:
   right:
     it: A destra
     en: Right
+  top:
+    it: In alto
+    en: Top
+  middle:
+    it: A metà
+    en: Middle
+  bottom:
+    it: In basso
+    en: Bottom
   remove_piece:
     it: Togli dal riquadro
     en: Remove from the box

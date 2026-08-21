@@ -12,7 +12,7 @@ use iced::widget::canvas::{self, Frame, Geometry, LineDash, Path, Stroke, Text};
 use iced::widget::image;
 use iced::{Color, Element, Fill, Pixels, Point, Rectangle, Renderer, Size, Theme};
 
-use cie_firma::{Align, Drawn, Ink};
+use cie_firma::{Drawn, Ink, Vertical};
 
 use crate::preview::{move_stamp, resize_stamp, Grab};
 use crate::snap::{self, Anchors};
@@ -402,7 +402,7 @@ pub fn paint(
         match &drawn.ink {
             Ink::Picture => {
                 if let Some(art) = picture {
-                    draw_picture(frame, art, area);
+                    draw_picture(frame, art, &drawn.placed, area);
                 }
             }
             Ink::Line(text) => draw_line(frame, drawn, text, area, px_per_pt),
@@ -410,25 +410,32 @@ pub fn paint(
     }
 }
 
-/// The picture, fitted and centred the way the renderer will fit it.
-fn draw_picture(frame: &mut Frame, art: &Art, area: Rectangle) {
-        let ratio = if art.ratio > 0.0 { art.ratio } else { 1.0 };
+/// The picture, fitted and placed the way the renderer will place it.
+///
+/// Both the fit and the placing come from `cie_firma`, so there is no second
+/// answer here to where a picture goes.
+fn draw_picture(frame: &mut Frame, art: &Art, placed: &cie_firma::Placed, area: Rectangle) {
+    let (width, height) = cie_firma::fit(art.ratio, (area.width, area.height));
+    let (slack_x, slack_y) = (area.width - width, area.height - height);
 
-        let (mut width, mut height) = (area.width, area.width / ratio);
-        if height > area.height {
-            height = area.height;
-            width = height * ratio;
-        }
-
-        frame.draw_image(
-            Rectangle {
-                x: area.x + (area.width - width) / 2.0,
-                y: area.y + (area.height - height) / 2.0,
-                width,
-                height,
-            },
-            &art.handle,
-        );
+    frame.draw_image(
+        Rectangle {
+            x: area.x + cie_firma::across(placed.align, slack_x),
+            // Down here the y axis runs downwards, so `Top` is the near end of
+            // the slack. The renderer, working in PDF space, has it the other
+            // way round — the one place these two disagree, and only about
+            // which way is up.
+            y: area.y
+                + match placed.vertical {
+                    Vertical::Top => 0.0,
+                    Vertical::Middle => slack_y / 2.0,
+                    Vertical::Bottom => slack_y,
+                },
+            width,
+            height,
+        },
+        &art.handle,
+    );
 }
 
 /// A line, drawn where and how the renderer will draw it.
@@ -446,12 +453,7 @@ fn draw_line(frame: &mut Frame, drawn: &Drawn, text: &str, area: Rectangle, px_p
     }
 
     let drawn_width = drawn.placed.width_of(text) * px_per_pt;
-    let x = area.x
-        + match drawn.placed.align {
-            Align::Left => 0.0,
-            Align::Centre => (area.width - drawn_width) / 2.0,
-            Align::Right => area.width - drawn_width,
-        };
+    let x = area.x + cie_firma::across(drawn.placed.align, area.width - drawn_width);
 
     frame.with_clip(area, |frame| {
         frame.fill_text(Text {

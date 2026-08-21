@@ -11,7 +11,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 
 use anyhow::Result;
 use cie_firma::keyring::{self, CardSecret};
-use cie_firma::{Align, PadesOptions, Piece, Placed, StampImage, Template};
+use cie_firma::{Align, PadesOptions, Piece, Placed, StampImage, Template, Vertical};
 use rust_i18n::t;
 
 use crate::job::{self, Kind, Request};
@@ -95,6 +95,7 @@ pub enum Message {
     PieceResized(f32),
     PieceBoldToggled(bool),
     PieceAligned(Align),
+    PieceRaised(Vertical),
     PieceTextChanged(String),
     PieceRemoved,
 
@@ -492,6 +493,12 @@ impl State {
                     self.save_settings();
                 }
             }
+            Message::PieceRaised(vertical) => {
+                if let Some(piece) = self.selected_piece_mut() {
+                    piece.vertical = vertical;
+                    self.save_settings();
+                }
+            }
             Message::PieceTextChanged(content) => {
                 if let Some(piece) = self.selected_piece_mut()
                     && let Piece::Text { content: slot } = &mut piece.piece
@@ -723,13 +730,19 @@ impl State {
             _ => [0.20, 0.40, 0.80, 0.60],
         };
 
+        // A picture sits in the middle of its rectangle both ways, which is
+        // where one in a stamp has always sat; a line starts at the left of
+        // its own, where a line starts.
+        let picture = piece == Piece::Image;
+
         let template = self.settings.active_mut();
         template.pieces.push(Placed {
             piece,
             rect,
             size: 7.0,
             bold: false,
-            align: Align::Left,
+            align: if picture { Align::Centre } else { Align::Left },
+            vertical: Vertical::Middle,
         });
         let last = template.pieces.len() - 1;
 

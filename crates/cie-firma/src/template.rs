@@ -66,7 +66,7 @@ pub enum Piece {
     Image,
 }
 
-/// Where a line sits inside the room it was given.
+/// Where something sits across the room it was given.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Align {
@@ -74,6 +74,27 @@ pub enum Align {
     Left,
     Centre,
     Right,
+}
+
+/// Where something sits up and down the room it was given.
+///
+/// Only the picture uses this, and the reason is worth stating: a line of text
+/// has no slack in its rectangle — it hangs from the top and you move the
+/// rectangle to move the line. A picture is fitted inside its rectangle
+/// keeping its proportions, so unless the two happen to have the same shape
+/// there is always room left over on one axis, and something has to say which
+/// end of it the picture goes.
+///
+/// `Middle` is the default because that is where pictures were before anyone
+/// could say otherwise: reading back a template written then must not move
+/// anybody's signature.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Vertical {
+    Top,
+    #[default]
+    Middle,
+    Bottom,
 }
 
 /// A piece, and the room it takes.
@@ -86,6 +107,9 @@ pub struct Placed {
     pub size: f32,
     pub bold: bool,
     pub align: Align,
+    /// Only the picture reads this. See [`Vertical`].
+    #[serde(default)]
+    pub vertical: Vertical,
 }
 
 impl Placed {
@@ -107,6 +131,21 @@ impl Placed {
             size,
             bold: false,
             align: Align::Left,
+            vertical: Vertical::default(),
+        }
+    }
+
+    /// The picture, which is placed rather than typeset.
+    fn picture_at(rect: [f32; 4]) -> Self {
+        Self {
+            piece: Piece::Image,
+            rect,
+            size: 0.0,
+            bold: false,
+            // Middle of its rectangle both ways, which is where a picture in a
+            // stamp has always sat.
+            align: Align::Centre,
+            vertical: Vertical::Middle,
         }
     }
 
@@ -187,7 +226,7 @@ impl Template {
         Self {
             name: name.into(),
             pieces: vec![
-                Placed::line(Piece::Image, [0.02, 0.08, 0.40, 0.92], 0.0),
+                Placed::picture_at([0.02, 0.08, 0.40, 0.92]),
                 Placed::line(Piece::Caption, [0.44, 0.10, 0.98, 0.28], 6.5),
                 Placed::line(Piece::Holder, [0.44, 0.28, 0.98, 0.52], 9.0).bold(),
                 Placed::line(Piece::TaxCode, [0.44, 0.52, 0.98, 0.70], 6.5),
@@ -335,7 +374,7 @@ impl AppearanceRenderer for Renderer {
                 Ink::Line(_) => {}
                 Ink::Picture => {
                     if let Some(image) = &self.image {
-                        picture(&mut content, &mut images, image, rect);
+                        picture(&mut content, &mut images, image, &drawn.placed, rect);
                     }
                 }
             }
@@ -409,28 +448,60 @@ fn picture(
     content: &mut Vec<u8>,
     images: &mut Vec<(String, ImageConfig)>,
     image: &StampImage,
+    placed: &Placed,
     (llx, lly, urx, ury): (f32, f32, f32, f32),
 ) {
     if images.is_empty() {
         images.push((PICTURE.to_string(), image.config(ImageScale::FitPreserveAspect)));
     }
 
-    let (room_w, room_h) = (urx - llx, ury - lly);
-    let ratio = image.aspect_ratio();
+    let (width, height) = fit(image.aspect_ratio(), (urx - llx, ury - lly));
+    let (slack_x, slack_y) = (urx - llx - width, ury - lly - height);
 
-    let (mut width, mut height) = (room_w, room_w / ratio);
-    if height > room_h {
-        height = room_h;
-        width = height * ratio;
-    }
-
-    let x = llx + (room_w - width) / 2.0;
-    let y = lly + (room_h - height) / 2.0;
+    let x = llx + across(placed.align, slack_x);
+    // Up here the y axis is the PDF's, running upwards, so `Top` is the far
+    // end of the slack rather than the near one.
+    let y = lly
+        + match placed.vertical {
+            Vertical::Top => slack_y,
+            Vertical::Middle => slack_y / 2.0,
+            Vertical::Bottom => 0.0,
+        };
 
     write(content, "q");
     write(content, &format!("{width:.4} 0 0 {height:.4} {x:.4} {y:.4} cm"));
     write(content, &format!("/{PICTURE} Do"));
     write(content, "Q");
+}
+
+/// The size a picture comes out at inside a rectangle, keeping its
+/// proportions.
+///
+/// Public because the preview has to fit it the same way. Stretching a
+/// handwritten signature to fill a rectangle is how you get a signature that
+/// is not yours, and doing it differently in two places is how you get a
+/// preview that lies about which one you will get.
+pub fn fit(ratio: f32, room: (f32, f32)) -> (f32, f32) {
+    let ratio = if ratio > 0.0 { ratio } else { 1.0 };
+
+    let (mut width, mut height) = (room.0, room.0 / ratio);
+    if height > room.1 {
+        height = room.1;
+        width = height * ratio;
+    }
+    (width, height)
+}
+
+/// How far in from the near edge something sits, given the room left over.
+///
+/// The x axis runs the same way in both worlds, so this one number serves the
+/// PDF and the screen alike.
+pub fn across(align: Align, slack: f32) -> f32 {
+    match align {
+        Align::Left => 0.0,
+        Align::Centre => slack / 2.0,
+        Align::Right => slack,
+    }
 }
 
 fn write(stream: &mut Vec<u8>, op: &str) {
@@ -655,6 +726,7 @@ mod tests {
                     size: 8.0,
                     bold: false,
                     align,
+                    vertical: Vertical::default(),
                 }],
                 image: None,
                 background: true,
@@ -751,5 +823,137 @@ mod tests {
         let raw = serde_json::to_string(&template).unwrap();
         let back: Template = serde_json::from_str(&raw).unwrap();
         assert!(!back.background && !back.border);
+    }
+
+    /// The picture goes where it is told, on both axes. Before, it was pinned
+    /// to the middle of its rectangle with no way to say otherwise — which on
+    /// a rectangle that is not the picture's own shape means a signature
+    /// floating somewhere nobody put it.
+    #[test]
+    fn the_picture_goes_where_it_is_told() {
+        // A rectangle twice as tall as the 2:1 fixture needs, so the picture
+        // is fitted by width and all the slack is vertical.
+        let place = |align, vertical| {
+            let template = Template {
+                name: "x".to_string(),
+                pieces: vec![Placed {
+                    piece: Piece::Image,
+                    rect: [0.0, 0.0, 1.0, 1.0],
+                    size: 0.0,
+                    bold: false,
+                    align,
+                    vertical,
+                }],
+                image: None,
+                background: true,
+                border: true,
+            };
+            let content =
+                String::from_utf8(render(&template, Some(picture())).content).unwrap();
+            let cm = content.lines().find(|l| l.ends_with(" cm")).unwrap();
+            let n: Vec<f32> = cm
+                .trim_end_matches(" cm")
+                .split_whitespace()
+                .map(|v| v.parse().unwrap())
+                .collect();
+            (n[4], n[5])
+        };
+
+        // The box is 230 x 70 and the picture 2:1, so it comes out 230 x 115 —
+        // taller than the box, so it is fitted by height instead: 140 x 70,
+        // leaving 90 points of slack across and none up and down.
+        let (left, _) = place(Align::Left, Vertical::Middle);
+        let (centre, _) = place(Align::Centre, Vertical::Middle);
+        let (right, _) = place(Align::Right, Vertical::Middle);
+
+        assert_eq!(left, 0.0);
+        assert!(left < centre && centre < right, "{left} {centre} {right}");
+        assert!((right - 90.0).abs() < 0.5, "{right}");
+        assert!((centre - 45.0).abs() < 0.5, "{centre}");
+    }
+
+    /// The two axes are told apart, and the vertical one runs the PDF's way:
+    /// `Top` is the high end of the sheet, not the low one.
+    #[test]
+    fn the_picture_knows_which_way_is_up() {
+        let place = |vertical| {
+            let mut template = Template::handwritten("x", "firma.png".into());
+            template.pieces = vec![Placed {
+                piece: Piece::Image,
+                // Tall and narrow, so the slack is vertical this time.
+                rect: [0.0, 0.0, 0.2, 1.0],
+                size: 0.0,
+                bold: false,
+                align: Align::Centre,
+                vertical,
+            }];
+            let content =
+                String::from_utf8(render(&template, Some(picture())).content).unwrap();
+            let cm = content.lines().find(|l| l.ends_with(" cm")).unwrap();
+            cm.trim_end_matches(" cm")
+                .split_whitespace()
+                .nth(5)
+                .unwrap()
+                .parse::<f32>()
+                .unwrap()
+        };
+
+        let (top, middle, bottom) = (
+            place(Vertical::Top),
+            place(Vertical::Middle),
+            place(Vertical::Bottom),
+        );
+        assert_eq!(bottom, 0.0, "the bottom of the box is y = 0 in PDF space");
+        assert!(bottom < middle && middle < top, "{bottom} {middle} {top}");
+    }
+
+    /// A picture the same shape as its rectangle has nowhere to go, and every
+    /// alignment has to put it in the same place rather than off an edge.
+    #[test]
+    fn a_picture_that_fills_its_rectangle_does_not_move() {
+        // 230 x 70 box; a rectangle 2:1 like the fixture leaves no slack.
+        let rect = [0.0, 0.0, 0.6087, 1.0];
+        let place = |align| {
+            let template = Template {
+                name: "x".to_string(),
+                pieces: vec![Placed {
+                    piece: Piece::Image,
+                    rect,
+                    size: 0.0,
+                    bold: false,
+                    align,
+                    vertical: Vertical::Middle,
+                }],
+                image: None,
+                background: true,
+                border: true,
+            };
+            let content =
+                String::from_utf8(render(&template, Some(picture())).content).unwrap();
+            let cm = content.lines().find(|l| l.ends_with(" cm")).unwrap();
+            cm.trim_end_matches(" cm")
+                .split_whitespace()
+                .nth(4)
+                .unwrap()
+                .parse::<f32>()
+                .unwrap()
+        };
+
+        assert!((place(Align::Left) - place(Align::Right)).abs() < 0.5);
+    }
+
+    /// A template written before the picture could be placed had it in the
+    /// middle. Reading one back must leave it there.
+    #[test]
+    fn a_piece_from_before_the_vertical_setting_stays_in_the_middle() {
+        let old = r#"{"piece": {"kind": "image"}, "rect": [0.0, 0.0, 1.0, 1.0],
+                      "size": 0.0, "bold": false, "align": "centre"}"#;
+
+        let placed: Placed = serde_json::from_str(old).unwrap();
+        assert_eq!(placed.vertical, Vertical::Middle);
+    }
+
+    fn picture() -> StampImage {
+        StampImage::decode(PNG.to_vec()).unwrap()
     }
 }
