@@ -45,6 +45,8 @@ ICONS = [
     ("copy", "DUPLICATE", "this template again"),
     ("trash-2", "REMOVE", "take it out"),
     ("magnet", "SNAP", "latching on to the lines other pieces make"),
+    ("id-card", "CARD", "the card on the reader"),
+    ("refresh-cw", "REREAD", "look at the reader again"),
 ]
 
 

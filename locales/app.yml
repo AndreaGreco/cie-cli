@@ -300,6 +300,12 @@ sign:
   pin_remember:
     it: Ricordalo nel portachiavi
     en: Remember it in the keyring
+  needs_card:
+    it: Appoggia la CIE sul lettore.
+    en: Put the CIE on the reader.
+  needs_reader:
+    it: Collega un lettore di smart card.
+    en: Plug in a smart card reader.
   pin_short:
     it: Servono tutte e otto le cifre.
     en: All eight digits are needed.
@@ -342,6 +348,26 @@ sign:
   no_document:
     it: Nessun documento scelto.
     en: No document chosen.
+
+card:
+  looking:
+    it: Lettura della carta…
+    en: Reading the card…
+  no_card:
+    it: Nessuna CIE sul lettore
+    en: No CIE on the reader
+  no_reader:
+    it: Nessun lettore
+    en: No reader
+  unknown:
+    it: Carta non letta
+    en: Card not read
+  foreign:
+    it: Carta non riconosciuta
+    en: Card not recognised
+  reread:
+    it: Rileggi la carta
+    en: Read the card again
 
 keyring:
   saved:

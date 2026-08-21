@@ -30,6 +30,15 @@ rust_i18n::i18n!("../../locales", fallback = "it");
 /// goes here the day a smooth progress bar matters.
 const TICK: Duration = Duration::from_millis(100);
 
+/// And how often the watch on the readers is drained, with nothing else going
+/// on.
+///
+/// The wait itself is PC/SC's, not ours: the thread is asleep in the driver
+/// until a card lands, and this is only how long the news then sits in the
+/// channel. A third of a second is quicker than a hand can put a card down and
+/// look up, at a third of the wake-ups of the tick above.
+const WATCH: Duration = Duration::from_millis(300);
+
 fn main() -> iced::Result {
     // The desktop's language, falling back to Italian: this is a tool for an
     // Italian identity document, so that is the sensible default.
@@ -170,10 +179,9 @@ fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Opti
 fn subscription(state: &State) -> Subscription<Message> {
     let input = event::listen_with(input);
 
-    // The timer only exists while a thread has something to say.
-    if state.busy() {
-        Subscription::batch([input, time::every(TICK).map(|_| Message::Tick)])
-    } else {
-        input
-    }
+    // The watch on the readers runs for as long as the window does, so there
+    // is always a channel to drain; how often depends on whether anything is
+    // waiting on the other end of it.
+    let every = if state.busy() { TICK } else { WATCH };
+    Subscription::batch([input, time::every(every).map(|_| Message::Tick)])
 }

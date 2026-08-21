@@ -6,10 +6,11 @@
 
 use anyhow::{Context, Result};
 use cie_firma::{sign_detached, sign_p7m, sign_pdf, PadesOptions, Step};
-use cie_lib::PcscContext;
+use cie_lib::{PcscContext, Presence, Watch};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -45,6 +46,55 @@ pub enum Message {
     },
     /// The error chain, already formatted.
     Failed(String),
+}
+
+/// How long the watch waits before looking up to check it is still alive.
+///
+/// PC/SC wakes us the moment a card lands or a reader is plugged in, so this
+/// is not how quickly a change is noticed — it is only how quickly we notice
+/// that the daemon we are waiting on has gone away underneath us.
+const PATIENCE: Duration = Duration::from_secs(1);
+
+/// How long to wait before trying to establish a context again.
+const RETRY: Duration = Duration::from_secs(2);
+
+/// Watches what the readers hold, for as long as the window is up.
+///
+/// Only changes come back down the channel, so a card sitting still costs
+/// nothing at all. Nothing here connects to the card: this thread has to keep
+/// running while a signature is in progress, and a second connection would
+/// select the applet out from under the secure channel.
+pub fn watch() -> Receiver<Presence> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let mut last = None;
+        let mut announce = |seen: Presence| {
+            if last == Some(seen) {
+                return Ok(());
+            }
+            last = Some(seen);
+            tx.send(seen)
+        };
+
+        loop {
+            // A context outlives the daemon that gave it to us and stays dead
+            // once it does: `pcscd` restarted, a reader driver falling over.
+            // So the watch is built again rather than mended.
+            if let Ok(mut watch) = Watch::new() {
+                while let Ok(seen) = watch.look(PATIENCE) {
+                    // The window is gone: so is any reason to keep watching.
+                    if announce(seen).is_err() {
+                        return;
+                    }
+                }
+            }
+            if announce(Presence::NoReader).is_err() {
+                return;
+            }
+            std::thread::sleep(RETRY);
+        }
+    });
+    rx
 }
 
 /// Asks the reader which card is on it, off the window thread.

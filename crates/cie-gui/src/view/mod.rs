@@ -11,10 +11,14 @@ mod stamp;
 
 use iced::widget::{
     button, column, container, image, opaque, responsive, row, scrollable, space, stack, text,
+    tooltip,
 };
 use iced::{Alignment, ContentFit, Element, Fill, Length};
 use rust_i18n::t;
 
+use cie_lib::Presence;
+
+use crate::icon;
 use crate::state::{Message, Overlay, Phase, State};
 use crate::theme;
 
@@ -56,15 +60,6 @@ pub fn view(state: &State) -> Element<'_, Message> {
 /// now the place you act from, and a title that only repeats what the window
 /// manager already shows was the least useful thing on it.
 fn app_bar(state: &State) -> Element<'_, Message> {
-    let card = match (&state.card.id, &state.card.stored) {
-        (Some(id), Some(stored)) => match stored.holder() {
-            Some(who) => text(format!("● {who} · {id}")),
-            None => text(format!("● {id}")),
-        },
-        (Some(id), None) => text(format!("● {id}")),
-        (None, _) => text("○").style(iced::widget::text::secondary),
-    };
-
     container(
         row![
             menu::titles(state),
@@ -75,7 +70,7 @@ fn app_bar(state: &State) -> Element<'_, Message> {
                 .padding([7, 10])
                 .on_press(Message::ShowAbout),
             space::horizontal(),
-            card.size(13),
+            card_badge(state),
             button(text(state.mode.label().into_owned()).size(12))
                 .style(theme::quiet)
                 .on_press(Message::ThemeChanged(state.mode.next())),
@@ -87,6 +82,76 @@ fn app_bar(state: &State) -> Element<'_, Message> {
     .style(theme::bar)
     .width(Fill)
     .height(Length::Fixed(menu::BAR))
+    .into()
+}
+
+/// Who the card says you are, and the way to ask the reader again.
+///
+/// The whole badge is a button, because the reader is looked at when the
+/// window opens and never again on its own: a reader plugged in afterwards, or
+/// a card put down after the window was already up, is the ordinary way round
+/// and not the odd one. Whatever the badge says has to be one click from being
+/// said afresh.
+fn card_badge(state: &State) -> Element<'_, Message> {
+    // Presence first, because it is the one that is never out of date. The id
+    // underneath it is whatever the last look found, and while a look is out
+    // the badge says so rather than showing an answer being replaced as it is
+    // read.
+    let (label, known) = match (state.card.presence, &state.card.id) {
+        (_, Some(id)) => {
+            let who = state.card.stored.as_ref().and_then(|s| s.holder());
+            let label = match who {
+                Some(who) => format!("{who} · {id}"),
+                None => id.clone(),
+            };
+            (label.into(), true)
+        }
+        _ if state.looking() => (t!("card.looking"), false),
+        // Something is on the reader and the look came back empty-handed: it
+        // is a card, but not one this program can sign with.
+        (Presence::Card, None) => (t!("card.foreign"), false),
+        (Presence::Empty, _) => (t!("card.no_card"), false),
+        (Presence::NoReader, _) => (t!("card.no_reader"), false),
+        (Presence::Unknown, _) => (t!("card.unknown"), false),
+    };
+
+    // Lit only with a card actually on the reader: this is the ● the bar used
+    // to draw, and it has to keep meaning exactly that.
+    let dim = |t: &iced::Theme| iced::widget::text::Style {
+        color: Some(t.extended_palette().background.base.text.scale_alpha(0.55)),
+    };
+    let glyph = text(if state.looking() { icon::REREAD } else { icon::CARD }.to_string())
+        .font(icon::FONT)
+        .size(14);
+
+    let face = button(
+        row![
+            if known { glyph } else { glyph.style(dim) },
+            text(label.into_owned()).size(13),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
+    )
+    .style(theme::quiet)
+    .padding([5, 9])
+    .on_press_maybe(state.can_look().then_some(Message::LookForCard));
+
+    tip(face, t!("card.reread"), tooltip::Position::Bottom)
+}
+
+/// A control and the words it does not have room for, a moment behind.
+fn tip<'a>(
+    control: impl Into<Element<'a, Message>>,
+    label: std::borrow::Cow<'a, str>,
+    at: tooltip::Position,
+) -> Element<'a, Message> {
+    tooltip(
+        control,
+        container(text(label.into_owned()).size(12))
+            .style(theme::floating)
+            .padding([4, 8]),
+        at,
+    )
     .into()
 }
 
@@ -272,10 +337,7 @@ fn action_bar(state: &State) -> Element<'_, Message> {
         row![
             destination,
             space::horizontal(),
-            button(text(t!("sign.action")).size(15).font(theme::UI_STRONG))
-                .style(theme::primary)
-                .padding([10, 28])
-                .on_press_maybe(state.can_sign().then_some(Message::SignPressed)),
+            sign_button(state),
         ]
         .align_y(Alignment::Center)
         .padding([12, 16]),
@@ -284,6 +346,31 @@ fn action_bar(state: &State) -> Element<'_, Message> {
     .width(Fill)
     .height(Length::Fixed(64.0))
     .into()
+}
+
+/// Firma, and — when it is dead — what it is waiting for.
+///
+/// A grey button with nothing to say is a puzzle, and now that a document on
+/// its own is not enough to press it, the commonest reason it is grey is a
+/// reader with nothing on it. That belongs under the cursor that has just
+/// found the button dead, not in a corner of the window.
+fn sign_button(state: &State) -> Element<'_, Message> {
+    let face = button(text(t!("sign.action")).size(15).font(theme::UI_STRONG))
+        .style(theme::primary)
+        .padding([10, 28])
+        .on_press_maybe(state.can_sign().then_some(Message::SignPressed));
+
+    // Nothing open is its own explanation — the desk says so in the middle of
+    // the window — and a signature already running has a panel over the lot.
+    if state.can_sign() || state.bytes.is_none() || state.card.here() {
+        return face.into();
+    }
+
+    let why = match state.card.presence {
+        Presence::NoReader => t!("sign.needs_reader"),
+        _ => t!("sign.needs_card"),
+    };
+    tip(face, why, tooltip::Position::Top)
 }
 
 /// Wraps a panel so the layers underneath stop receiving the mouse.

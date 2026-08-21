@@ -14,6 +14,8 @@ use cie_firma::keyring::{self, CardSecret};
 use cie_firma::{Align, PadesOptions, Piece, Placed, StampImage, Template, Vertical};
 use rust_i18n::t;
 
+use cie_lib::Presence;
+
 use crate::job::{self, Kind, Request};
 use crate::preview::{Document, to_pdf_rect};
 use crate::settings::{self, Settings};
@@ -155,6 +157,8 @@ pub enum Message {
 
     // Background
     Tick,
+    /// Look at the reader again, from the button in the bar.
+    LookForCard,
     ForgetCard,
     ThemeChanged(Mode),
 }
@@ -239,10 +243,30 @@ impl Signature {
 }
 
 /// The card on the reader, as far as we know.
+///
+/// Two questions, because they are answered by two different things. Whether
+/// something is on the reader PC/SC tells us as it happens and without
+/// touching the card, so `presence` is always current. Which card it is takes
+/// a connection and half a second, and cannot be asked at all while a
+/// signature is running — so `id` is what the last look managed to find out,
+/// and lags the other by however long that look takes.
 #[derive(Debug, Default)]
 pub struct Card {
+    pub presence: Presence,
     pub id: Option<String>,
     pub stored: Option<CardSecret>,
+}
+
+impl Card {
+    /// Whether there is something on the reader to sign with.
+    ///
+    /// `Unknown` counts as yes: it means nobody has managed to look — no
+    /// daemon, or a platform that will not say — and refusing to sign because
+    /// we could not check would be worse than letting the attempt fail with a
+    /// reason.
+    pub fn here(&self) -> bool {
+        !matches!(self.presence, Presence::NoReader | Presence::Empty)
+    }
 }
 
 pub struct State {
@@ -303,6 +327,10 @@ pub struct State {
     /// rather than something being written to a guess.
     settings_path: Option<PathBuf>,
 
+    /// What the readers hold, as it changes. Alive for as long as the window
+    /// is, and `None` only where nothing is watching: the tests, and a
+    /// watcher whose thread has hung up.
+    watching: Option<Receiver<Presence>>,
     identifying: Option<Receiver<Option<String>>>,
     job: Option<Receiver<job::Message>>,
 }
@@ -333,6 +361,7 @@ impl Default for State {
             box_size: written(cie_firma::DEFAULT_SIZE_MM),
             signature: None,
             settings_path: None,
+            watching: None,
             identifying: None,
             job: None,
         }
@@ -350,6 +379,7 @@ impl State {
             .unwrap_or_default();
 
         let mut state = Self {
+            watching: Some(job::watch()),
             identifying: Some(job::identify()),
             settings,
             settings_path,
@@ -362,12 +392,42 @@ impl State {
 
     /// True while something in the background needs draining.
     pub fn busy(&self) -> bool {
-        self.identifying.is_some() || self.job.is_some()
+        self.looking() || self.job.is_some()
     }
 
-    /// A document is enough to press Firma: the PIN is asked afterwards.
+    /// True while a look at the reader is on its way back.
+    pub fn looking(&self) -> bool {
+        self.identifying.is_some()
+    }
+
+    /// Whether the reader can be looked at right now.
+    ///
+    /// Not while signing: that thread holds the card through a secure channel,
+    /// and a second connection opening the applet underneath it would break
+    /// the signature in progress.
+    pub fn can_look(&self) -> bool {
+        self.identifying.is_none() && self.job.is_none()
+    }
+
+    /// Asks the reader again who is on it.
+    ///
+    /// The same look `new` starts, for a reader plugged in — or a card put
+    /// down — after the window was already open.
+    fn look(&mut self) {
+        if !self.can_look() {
+            return;
+        }
+        self.identifying = Some(job::identify());
+    }
+
+    /// A document and a card are enough to press Firma: the PIN is asked
+    /// afterwards.
+    ///
+    /// The card has to be there, because everything after the button — the
+    /// PIN panel, the secure channel — is spent on a reader with nothing on
+    /// it. See `Card::here` for what happens when nobody could check.
     pub fn can_sign(&self) -> bool {
-        self.bytes.is_some() && self.job.is_none()
+        self.bytes.is_some() && self.job.is_none() && self.card.here()
     }
 
     pub fn shows_preview(&self) -> bool {
@@ -649,6 +709,7 @@ impl State {
             Message::OverlayDismissed => self.overlay = Overlay::None,
 
             Message::Tick => self.poll(),
+            Message::LookForCard => self.look(),
             Message::ForgetCard => self.forget(),
             Message::ThemeChanged(mode) => self.mode = mode,
 
@@ -982,9 +1043,36 @@ impl State {
 
     /// Drains whatever the background threads have to say.
     fn poll(&mut self) {
+        // Taken out and put back rather than borrowed: what arrives here
+        // changes the rest of the state, and a look started from inside the
+        // loop would be a second borrow of the whole thing.
+        if let Some(rx) = self.watching.take() {
+            let mut watching = true;
+            loop {
+                match rx.try_recv() {
+                    Ok(presence) => self.saw(presence),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        watching = false;
+                        break;
+                    }
+                }
+            }
+            if watching {
+                self.watching = Some(rx);
+            }
+        }
+
         if let Some(rx) = &self.identifying
             && let Ok(id) = rx.try_recv()
         {
+            // A card lifted off the reader while the look was still out: the
+            // answer is about a card that has left, and the reader has already
+            // said so.
+            let id = id.filter(|_| self.card.here());
+            // The keyring is read afresh every time, and cleared when the look
+            // found nothing: a stale name in the bar is a name belonging to a
+            // card that is no longer on the reader.
             self.card.stored = id.as_deref().and_then(keyring::read);
             self.card.id = id;
             self.identifying = None;
@@ -1017,6 +1105,21 @@ impl State {
                     return;
                 }
             }
+        }
+    }
+
+    /// The readers changed hands. Only changes get this far, never repeats.
+    fn saw(&mut self, presence: Presence) {
+        self.card.presence = presence;
+        if presence == Presence::Card {
+            // Something has been put down: which card it is takes a look, and
+            // the look is what fills in the name and finds the saved PIN.
+            self.look();
+        } else {
+            // Nothing there any more. A name left in the bar would be the name
+            // of a card that has been picked up and put in a pocket.
+            self.card.id = None;
+            self.card.stored = None;
         }
     }
 
@@ -1066,6 +1169,17 @@ mod tests {
     use super::*;
 
     const MINIMAL_PDF: &[u8] = include_bytes!("../../cie-firma/tests/fixtures/minimo.pdf");
+
+    /// A card whose PIN and holder the keyring already knew.
+    fn with_a_known_card(state: &mut State) {
+        state.card.id = Some("1234".to_string());
+        state.card.stored = Some(CardSecret {
+            pin: "12345678".to_string(),
+            name: Some("Mario".to_string()),
+            surname: Some("Rossi".to_string()),
+            ..Default::default()
+        });
+    }
 
     fn with_a_pdf() -> (State, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -1683,6 +1797,109 @@ mod tests {
         state.update(Message::Tick);
 
         assert_eq!(state.menu, Some(Menu::File));
+    }
+
+    /// The badge in the bar is a button, and a button pressed twice while the
+    /// first look is still out would drop the receiver the answer is coming
+    /// back on — leaving the bar saying "reading" for ever.
+    #[test]
+    fn a_second_look_does_not_start_while_one_is_out() {
+        let mut state = State::default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.identifying = Some(rx);
+        tx.send(Some("1234".to_string())).unwrap();
+
+        state.update(Message::LookForCard);
+        state.update(Message::Tick);
+
+        assert_eq!(
+            state.card.id.as_deref(),
+            Some("1234"),
+            "the answer to the look already out should still have arrived"
+        );
+        assert!(!state.looking());
+    }
+
+    /// Signing holds the card through a secure channel. A look opens a second
+    /// connection and selects an applet on the same card, which would pull the
+    /// floor out from under the signature in progress.
+    #[test]
+    fn the_reader_is_left_alone_while_a_signature_runs() {
+        let mut state = State::default();
+        let (_tx, rx) = std::sync::mpsc::channel::<job::Message>();
+        state.job = Some(rx);
+
+        state.update(Message::LookForCard);
+
+        assert!(!state.looking());
+        assert!(!state.can_look());
+    }
+
+    /// A look that comes back empty has to clear what the last one found: a
+    /// name left in the bar is a name for a card that is no longer there.
+    #[test]
+    fn a_look_that_finds_nothing_clears_the_card() {
+        let mut state = State::default();
+        state.card.presence = Presence::Card;
+        with_a_known_card(&mut state);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.identifying = Some(rx);
+        tx.send(None).unwrap();
+        state.update(Message::Tick);
+
+        assert_eq!(state.card.id, None);
+        assert!(state.card.stored.is_none());
+        assert!(state.known_holder().is_none());
+    }
+
+    /// The reader says what it holds as it happens. A card picked up in the
+    /// middle of everything takes its name out of the bar with it, and Firma
+    /// with it: everything past that button is spent on an empty reader.
+    #[test]
+    fn a_card_lifted_off_the_reader_takes_the_signature_with_it() {
+        let (mut state, _dir) = with_a_pdf();
+        state.card.presence = Presence::Card;
+        with_a_known_card(&mut state);
+        assert!(state.can_sign());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.watching = Some(rx);
+        tx.send(Presence::Empty).unwrap();
+        state.update(Message::Tick);
+
+        assert_eq!(state.card.presence, Presence::Empty);
+        assert!(!state.can_sign(), "there is nothing on the reader to sign with");
+        assert!(state.card.id.is_none());
+        assert!(state.known_holder().is_none());
+    }
+
+    /// Nobody managed to look — no daemon, or a platform that will not say.
+    /// Refusing to sign over a check we could not make would be worse than
+    /// letting the attempt fail with a reason.
+    #[test]
+    fn an_unwatchable_reader_does_not_bar_signing() {
+        let (state, _dir) = with_a_pdf();
+
+        assert_eq!(state.card.presence, Presence::Unknown);
+        assert!(state.can_sign());
+    }
+
+    /// A card put down while a signature is running must not be looked at:
+    /// that thread is holding the card through a secure channel.
+    #[test]
+    fn a_card_arriving_mid_signature_is_not_looked_at() {
+        let mut state = State::default();
+        let (_job_tx, job_rx) = std::sync::mpsc::channel::<job::Message>();
+        state.job = Some(job_rx);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.watching = Some(rx);
+        tx.send(Presence::Card).unwrap();
+        state.update(Message::Tick);
+
+        assert_eq!(state.card.presence, Presence::Card);
+        assert!(!state.looking(), "the signing thread has the card");
     }
 
     /// About goes up and comes back down, and does not disturb the signing

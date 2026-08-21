@@ -45,3 +45,9 @@ pub const REMOVE: char = '\u{e18e}';
 
 /// `magnet` — latching on to the lines other pieces make.
 pub const SNAP: char = '\u{e2b5}';
+
+/// `id-card` — the card on the reader.
+pub const CARD: char = '\u{e617}';
+
+/// `refresh-cw` — look at the reader again.
+pub const REREAD: char = '\u{e145}';
