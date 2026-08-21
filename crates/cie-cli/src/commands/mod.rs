@@ -73,26 +73,32 @@ pub fn open_card(ctx: &PcscContext, pin: Option<String>) -> Result<CieSigner> {
 /// The returned flag says whether the PIN was typed by hand, i.e. whether it is
 /// worth offering to remember it.
 ///
+/// The keyring is asked through `read_with_prompt`, so a stored PIN still costs
+/// the user one system password: an unlocked login session is not on its own a
+/// licence to sign.
+///
 /// All eight digits are needed. The official middleware keeps four of them in a
 /// cache on disk (`IAS::GetFirstPIN`) and asks only for the other four: that is
 /// why it insists on the Java card-registration app.
 pub fn resolve_pin(pin: Option<String>, card: Option<&str>) -> Result<(String, bool)> {
-    let stored = card.and_then(keyring::read);
-
-    let (pin, typed) = match (pin, stored) {
-        (Some(p), _) => (p, false),
-        (None, Some(entry)) => {
-            match entry.holder() {
-                Some(who) => eprintln!("  PIN dal portachiavi ({who})."),
-                None => eprintln!("  PIN dal portachiavi."),
+    // An explicit PIN settles it: the keyring is not touched, and neither is
+    // its lock - there is nothing to prove to a caller who already typed it.
+    let (pin, typed) = match pin {
+        Some(pin) => (pin, false),
+        None => match card.and_then(keyring::read_with_prompt) {
+            Some(entry) => {
+                match entry.holder() {
+                    Some(who) => eprintln!("  PIN dal portachiavi ({who})."),
+                    None => eprintln!("  PIN dal portachiavi."),
+                }
+                (entry.pin, false)
             }
-            (entry.pin, false)
-        }
-        (None, None) => {
-            eprint!("  Inserisci PIN (8 cifre): ");
-            io::stderr().flush()?;
-            (rpassword::read_password()?, true)
-        }
+            None => {
+                eprint!("  Inserisci PIN (8 cifre): ");
+                io::stderr().flush()?;
+                (rpassword::read_password()?, true)
+            }
+        },
     };
 
     if pin.len() != 8 || !pin.chars().all(|c| c.is_ascii_digit()) {

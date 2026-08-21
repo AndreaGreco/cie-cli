@@ -26,9 +26,21 @@ pub enum Kind {
 pub struct Request {
     pub bytes: Arc<Vec<u8>>,
     pub kind: Kind,
-    pub pin: String,
+    pub pin: Pin,
     pub output: PathBuf,
     pub options: PadesOptions,
+}
+
+/// Where the PIN comes from.
+pub enum Pin {
+    /// Typed into the panel, and already in hand.
+    Typed(String),
+    /// In the keyring, under this card id.
+    ///
+    /// Reading it happens on the signing thread and not in `update()`: it puts
+    /// the system's unlock prompt on screen, and the window thread cannot sit
+    /// waiting for someone to type a password into another process.
+    Stored(String),
 }
 
 pub enum Message {
@@ -119,8 +131,20 @@ fn run(r: &Request, tx: &Sender<Message>) -> Result<(PathBuf, Option<cie_lib::Da
         let _ = tx.send(Message::Progress(text.to_string()));
     };
 
+    // Before the reader is touched: if the keyring says no, there is no point
+    // having opened a secure channel.
+    let pin = match &r.pin {
+        Pin::Typed(pin) => pin.clone(),
+        Pin::Stored(card) => {
+            let _ = tx.send(Message::Progress("Sblocco del portachiavi…".to_string()));
+            cie_firma::keyring::read_with_prompt(card)
+                .map(|entry| entry.pin)
+                .context("il portachiavi non ha restituito il PIN")?
+        }
+    };
+
     let ctx = PcscContext::new()?;
-    let signer = cie_firma::open_and_authenticate(&ctx, &r.pin, &progress)?;
+    let signer = cie_firma::open_and_authenticate(&ctx, &pin, &progress)?;
 
     let _ = tx.send(Message::Progress("Firma del documento…".to_string()));
 

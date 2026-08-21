@@ -15,6 +15,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 const SERVICE: &str = "cie";
 
@@ -23,9 +24,11 @@ const SERVICE: &str = "cie";
 /// The holder's details are a cache, not a source of truth: they come out of
 /// the certificate on the first successful signature and only serve to greet
 /// the card by name when it is put on the reader, long before any PIN.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardSecret {
-    pub pin: String,
+    /// Wrapped so the bytes are overwritten when this entry is dropped, and
+    /// not merely handed back to the allocator with the PIN still in them.
+    pub pin: Zeroizing<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -35,6 +38,18 @@ pub struct CardSecret {
 }
 
 impl CardSecret {
+    /// The same entry with the PIN dropped.
+    ///
+    /// What a window keeps between signatures: the holder's name has to stay
+    /// on screen, the PIN has no business outliving the signature it was
+    /// unlocked for.
+    pub fn without_pin(self) -> Self {
+        Self {
+            pin: Zeroizing::default(),
+            ..self
+        }
+    }
+
     /// The holder as one line, for a label. `None` until a signature has
     /// taught us who they are.
     pub fn holder(&self) -> Option<String> {
@@ -43,6 +58,19 @@ impl CardSecret {
             (Some(one), None) | (None, Some(one)) => Some(one.clone()),
             (None, None) => None,
         }
+    }
+}
+
+/// Redacted on purpose: a `{:?}` on this struct anywhere - a log line, an
+/// error chain, a panic message - would otherwise print the PIN in clear.
+impl std::fmt::Debug for CardSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CardSecret")
+            .field("pin", &"<redacted>")
+            .field("name", &self.name)
+            .field("surname", &self.surname)
+            .field("tax_code", &self.tax_code)
+            .finish()
     }
 }
 
@@ -55,13 +83,69 @@ fn entry(card_id: &str) -> Result<keyring::Entry> {
 /// A keyring that is missing, locked or empty is not an error worth showing:
 /// it only means the PIN has to be typed and the card is not known yet.
 pub fn read(card_id: &str) -> Option<CardSecret> {
-    let raw = entry(card_id).ok()?.get_password().ok()?;
+    // The whole entry arrives as one JSON string, PIN included: that string is
+    // a second copy of the secret and has to be wiped like the first.
+    let raw = Zeroizing::new(entry(card_id).ok()?.get_password().ok()?);
     serde_json::from_str(&raw).ok()
 }
 
+/// The same entry, but only after the system has asked who is at the keyboard.
+///
+/// This is the read to use when the PIN is about to be *used*: [`read`] is for
+/// the label on screen, this one is for signing.
+pub fn read_with_prompt(card_id: &str) -> Option<CardSecret> {
+    relock(card_id);
+    read(card_id)
+}
+
+/// Puts the lock back on this card's entry, so the read right after it makes
+/// the keyring ask for the user's password.
+///
+/// A secret-service collection unlocked at login hands the PIN over without a
+/// word: whoever walks up to an unattended session signs as the holder. Taking
+/// the lock back costs the person at the keyboard one password, and that is
+/// exactly the proof we are after.
+///
+/// gnome-keyring only honours a lock aimed at a whole collection, so the
+/// fallback takes the collection with it: same prompt, and everything else in
+/// it comes back unlocked together with our entry.
+///
+/// Linux only. The Windows Credential Manager has no lock to take and macOS
+/// wants an ACL set at creation time, so on those two the stored PIN stays as
+/// reachable as it has always been.
+#[cfg(target_os = "linux")]
+fn relock(card_id: &str) {
+    use secret_service::{blocking::SecretService, EncryptionType};
+
+    // Plain: nothing secret crosses this connection, we only turn a key.
+    let Ok(service) = SecretService::connect(EncryptionType::Plain) else {
+        return;
+    };
+    let attributes = std::collections::HashMap::from([("service", SERVICE), ("username", card_id)]);
+    let Ok(found) = service.search_items(attributes) else {
+        return;
+    };
+    if found.unlocked.is_empty() {
+        return; // already locked, or this card was never stored
+    }
+
+    let mut locked = false;
+    for item in &found.unlocked {
+        locked |= item.lock().is_ok() && item.is_locked().unwrap_or(false);
+    }
+    if !locked
+        && let Ok(collection) = service.get_default_collection()
+    {
+        let _ = collection.lock();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn relock(_card_id: &str) {}
+
 /// Writes (or replaces) what we know about this card.
 pub fn store(card_id: &str, secret: &CardSecret) -> Result<()> {
-    let raw = serde_json::to_string(secret).context("serializzazione della voce")?;
+    let raw = Zeroizing::new(serde_json::to_string(secret).context("serializzazione della voce")?);
     entry(card_id)?
         .set_password(&raw)
         .context("scrittura nel portachiavi")
@@ -84,7 +168,7 @@ mod tests {
     #[test]
     fn a_secret_survives_the_round_trip() {
         let secret = CardSecret {
-            pin: "12345678".to_string(),
+            pin: Zeroizing::new("12345678".to_string()),
             name: Some("MARIO".to_string()),
             surname: Some("ROSSI".to_string()),
             tax_code: Some("RSSMRA80A01H501U".to_string()),
@@ -99,7 +183,7 @@ mod tests {
     #[test]
     fn a_card_without_a_holder_reads_back() {
         let secret = CardSecret {
-            pin: "87654321".to_string(),
+            pin: Zeroizing::new("87654321".to_string()),
             ..Default::default()
         };
 
@@ -110,10 +194,27 @@ mod tests {
         assert_eq!(back.holder(), None);
     }
 
+    /// Dropping the PIN must leave the holder behind: the sidebar goes on
+    /// showing who the card belongs to between signatures.
+    #[test]
+    fn without_pin_keeps_the_holder() {
+        let secret = CardSecret {
+            pin: Zeroizing::new("12345678".to_string()),
+            name: Some("MARIO".to_string()),
+            surname: Some("ROSSI".to_string()),
+            tax_code: Some("RSSMRA80A01H501U".to_string()),
+        };
+
+        let bare = secret.clone().without_pin();
+        assert!(bare.pin.is_empty());
+        assert_eq!(bare.holder(), secret.holder());
+        assert_eq!(bare.tax_code, secret.tax_code);
+    }
+
     #[test]
     fn the_holder_reads_as_one_line() {
         let mut secret = CardSecret {
-            pin: "12345678".to_string(),
+            pin: Zeroizing::new("12345678".to_string()),
             name: Some("MARIO".to_string()),
             surname: Some("ROSSI".to_string()),
             tax_code: None,

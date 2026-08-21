@@ -60,6 +60,7 @@ installer-mode = "currentUser"
 languages = ["it-IT"]
 
 [dependencies]
+zeroize.workspace = true
 cie-firma.workspace = true
 cie-lib.workspace = true
 anyhow.workspace = true

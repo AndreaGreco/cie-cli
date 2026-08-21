@@ -223,6 +223,16 @@ sessione. `cie` non scrive nessun file di cache suo. È l'opposto della cache de
 middleware, che tiene quattro cifre in un file proprio, cifrate con una chiave
 derivabile da chiunque abbia la carta.
 
+Prima di leggere il PIN, `cie` rimette il lucchetto sulla voce: la sessione
+sbloccata al login non basta più, il sistema chiede di nuovo la password. Una
+sessione lasciata aperta non è una firma autorizzata. GNOME sa chiudere solo
+portachiavi interi, non singole voci, quindi il lucchetto va sul portachiavi:
+lo sblocco che segue riapre anche tutto il resto che c'è dentro.
+
+Solo su Linux, dove c'è secret-service. Il Credential Manager di Windows non
+ha un lucchetto da rimettere e il Keychain di macOS vuole una ACL decisa alla
+creazione: lì il PIN salvato resta raggiungibile come prima.
+
 Resta il limite del modello: a portachiavi sbloccato, qualunque processo che
 giri come te può chiederne il contenuto. Un portachiavi di sistema non difende
 da codice che ha già i tuoi privilegi.

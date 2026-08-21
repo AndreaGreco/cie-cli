@@ -299,7 +299,7 @@ impl State {
                     && pin.len() == 8
                 {
                     let (pin, remember) = (pin.clone(), *remember);
-                    self.start_signing(pin, remember);
+                    self.start_signing(job::Pin::Typed(pin), remember);
                 }
             }
             Message::SignCancelled | Message::OutcomeDismissed => {
@@ -379,10 +379,14 @@ impl State {
 
     /// Firma was pressed: skip the PIN panel when the keyring already knows
     /// this card, otherwise ask.
+    ///
+    /// Knowing it is not the same as having it. The stored PIN is fetched by
+    /// the signing thread, behind whatever the system asks to prove the person
+    /// at the keyboard is still the holder.
     fn begin(&mut self) {
         self.notice = None;
-        match self.card.stored.as_ref().map(|s| s.pin.clone()) {
-            Some(pin) => self.start_signing(pin, false),
+        match self.card.id.clone().filter(|_| self.card.stored.is_some()) {
+            Some(id) => self.start_signing(job::Pin::Stored(id), false),
             None => {
                 self.phase = Phase::Pin {
                     pin: String::new(),
@@ -392,14 +396,18 @@ impl State {
         }
     }
 
-    fn start_signing(&mut self, pin: String, remember: bool) {
+    fn start_signing(&mut self, pin: job::Pin, remember: bool) {
         let Some(bytes) = self.bytes.clone() else {
             self.phase = Phase::Failed(t!("sign.no_document").to_string());
             return;
         };
 
-        if remember {
-            self.remember(&pin);
+        // Only a PIN just typed is worth filing; the other kind came out of the
+        // keyring to begin with.
+        if remember
+            && let job::Pin::Typed(typed) = &pin
+        {
+            self.remember(typed);
         }
 
         let options = match &self.document {
@@ -437,7 +445,7 @@ impl State {
         };
         match keyring::store(&id, &entry) {
             Ok(()) => {
-                self.card.stored = Some(entry);
+                self.card.stored = Some(entry.without_pin());
                 self.notice = Some(t!("keyring.saved").to_string());
             }
             Err(e) => {
@@ -459,7 +467,12 @@ impl State {
         if let Some(rx) = &self.identifying
             && let Ok(id) = rx.try_recv()
         {
-            self.card.stored = id.as_deref().and_then(keyring::read);
+            // Read without a prompt, and without keeping the PIN: this is the
+            // greeting on the sidebar, not the signature.
+            self.card.stored = id
+                .as_deref()
+                .and_then(keyring::read)
+                .map(CardSecret::without_pin);
             self.card.id = id;
             self.card.asked = true;
             self.identifying = None;
@@ -505,7 +518,7 @@ impl State {
     }
 
     /// The reader changed. Anything read off the old card stops being true the
-    /// moment it leaves - including the PIN the keyring handed over for it.
+    /// moment it leaves - including who the keyring said it belonged to.
     fn set_status(&mut self, status: CardStatus) {
         if status == self.card.status {
             return;
@@ -538,9 +551,12 @@ impl State {
     /// no PIN to file it under otherwise, and a name on its own would be
     /// personal data stored for nothing.
     fn learn(&mut self, holder: Option<cie_lib::DatiTitolare>) {
-        let (Some(holder), Some(id), Some(stored)) =
-            (holder, self.card.id.clone(), self.card.stored.clone())
-        else {
+        let (Some(holder), Some(id)) = (holder, self.card.id.clone()) else {
+            return;
+        };
+        // Plain read: the entry was unlocked moments ago for this very
+        // signature, and rewriting it must not cost a second password.
+        let Some(stored) = keyring::read(&id) else {
             return;
         };
 
@@ -554,7 +570,7 @@ impl State {
             return;
         }
         if keyring::store(&id, &learnt).is_ok() {
-            self.card.stored = Some(learnt);
+            self.card.stored = Some(learnt.without_pin());
         }
     }
 

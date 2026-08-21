@@ -12,12 +12,20 @@ anyhow.workspace = true
 keyring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+zeroize.workspace = true
 
 # PAdES e CAdES. Niente feature di rete: senza `tsp` non c'e' nessun client HTTP
 # nel percorso di firma, e questo livello continua a parlare solo con la carta.
 underskrift = { version = "0.1.4", default-features = false, features = ["visual", "blocking"] }
 tokio = { version = "1", features = ["rt"] }
 chrono = "0.4"
+
+# Solo per rimettere il lucchetto sulla voce del portachiavi prima di leggerla
+# (vedi `keyring::relock`): il crate `keyring` sa aprire, non sa richiudere.
+# Stessa versione che usa gia' il suo backend secret-service, quindi non e' una
+# dipendenza in piu' nel build.
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = "5"
 
 # Un firmatario software che imita il contratto della carta (riceve un hash,
 # costruisce il DigestInfo, restituisce PKCS#1 v1.5) cosi' il percorso di firma

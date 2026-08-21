@@ -12,6 +12,7 @@ use crate::asn1::{Asn1Node, asn1_tag};
 use crate::pcsc_direct::PcscCard;
 use crate::apdu::CieType;
 use tracing::{debug, info};
+use zeroize::Zeroize;
 
 /// Modulo RSA del certificato end-entity DAPP.
 /// Generata da cie-middleware-linux/cie-pkcs11/CSP/IAS.cpp (256 byte).
@@ -858,7 +859,11 @@ impl SecureMessaging {
         let mut apdu = vec![0x00, 0x20, 0x00, 0x81, 0x08];
         apdu.extend_from_slice(pin_bytes);
 
-        let (_, sw) = self.send_apdu(card, &apdu)?;
+        // Il `?` sta dopo l'azzeramento apposta: anche uscendo per errore il
+        // PIN non deve restare in un Vec liberato e mai sovrascritto.
+        let esito = self.send_apdu(card, &apdu);
+        apdu.zeroize();
+        let (_, sw) = esito?;
 
         match sw {
             0x9000 => {

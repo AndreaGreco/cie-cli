@@ -8,6 +8,7 @@
 //! - RSA per DAPP
 
 use crate::error::{CieError, Result};
+use zeroize::Zeroize;
 use des::cipher::{BlockCipherEncrypt, BlockCipherDecrypt, KeyInit, array::Array};
 use sha2::{Sha256, Digest};
 
@@ -46,8 +47,13 @@ impl TripleDes {
 
     /// Cifra dati con 3DES-CBC (con ISO padding)
     pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let padded = iso_pad(data);
-        self.encrypt_raw(&padded)
+        // La copia paddata contiene il testo in chiaro - il PIN, quando questa
+        // e' la VERIFY - e liberare un Vec non ne cancella i byte: restano
+        // nell'heap finche' l'allocatore non riusa quella memoria.
+        let mut padded = iso_pad(data);
+        let cifrato = self.encrypt_raw(&padded);
+        padded.zeroize();
+        cifrato
     }
 
     /// Cifra dati già paddati

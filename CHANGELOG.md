@@ -7,6 +7,21 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+### Changed
+
+- Il PIN salvato nel portachiavi non e' piu' un lasciapassare: prima di ogni
+  lettura la voce viene richiusa a chiave, cosi' il sistema chiede la password
+  anche a sessione gia' sbloccata. Una sessione lasciata aperta non e'
+  un'autorizzazione a firmare. Vale dove c'e' secret-service, cioe' su Linux:
+  Gestione credenziali di Windows non espone un lucchetto da rimettere, e su
+  macOS servirebbe una ACL decisa alla creazione del segreto.
+- GNOME sa chiudere a chiave solo portachiavi interi, mai la singola voce: se il
+  lock sulla voce non passa, si chiude il portachiavi che la contiene. La
+  password che segue riapre tutto insieme.
+- Nella GUI il PIN non resta piu' in memoria fra una firma e l'altra, e la
+  lettura dal portachiavi e' passata sul thread della firma - la richiesta di
+  password del sistema non puo' bloccare il thread della finestra.
+
 ## [0.1.7] - 2026-08-13
 
 ### Fixed
