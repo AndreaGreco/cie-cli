@@ -1,7 +1,8 @@
 //! The column of cards: what is being signed, how, and where the box goes.
 
 use iced::widget::{
-    button, checkbox, column, container, pick_list, radio, row, scrollable, text, text_input,
+    button, checkbox, column, container, pick_list, radio, row, scrollable, space, text,
+    text_input, MouseArea,
 };
 use iced::{Alignment, Element, Fill};
 use rust_i18n::t;
@@ -98,17 +99,50 @@ fn size_and_pages(bytes: usize, pages: usize) -> String {
     }
 }
 
+/// The circle of a radio, and the gap between it and its label.
+///
+/// Named because the second line has to start under the first, and the only
+/// way to know where the first one starts is to have said how wide the circle
+/// and the gap are.
+const RADIO: f32 = 15.0;
+const RADIO_GAP: f32 = 8.0;
+
 fn kind(state: &State) -> Element<'_, Message> {
-    let choice = |k: Kind, label: std::borrow::Cow<'_, str>| {
-        radio(label.into_owned(), k, Some(state.kind), Message::KindChanged).size(15)
+    // The name on one line and what it means on the next, quieter and smaller.
+    // On one line the three of them read as a wall of prose in a column 340
+    // pixels wide; split, the eye picks the three names out first and reads
+    // the rest only if it needs to.
+    let choice = |k: Kind,
+                  name: std::borrow::Cow<'_, str>,
+                  what: std::borrow::Cow<'_, str>| {
+        let block = column![
+            radio(name.into_owned(), k, Some(state.kind), Message::KindChanged)
+                .size(RADIO)
+                .spacing(RADIO_GAP)
+                .text_size(14),
+            row![
+                space::horizontal().width(RADIO + RADIO_GAP),
+                text(what.into_owned())
+                    .size(11)
+                    .style(iced::widget::text::secondary),
+            ],
+        ]
+        .spacing(1);
+
+        // The whole block answers to a click, not just the circle and the
+        // name: a line of text sitting under a radio that does nothing when
+        // you press it reads as broken.
+        MouseArea::new(block)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_press(Message::KindChanged(k))
     };
 
-    let mut body = column![].spacing(10);
+    let mut body = column![].spacing(12);
 
     // PAdES only exists for a PDF we could actually open; offering it otherwise
     // would be a button that fails on press.
     if state.document.is_some() {
-        body = body.push(choice(Kind::Pades, t!("kind.pades")));
+        body = body.push(choice(Kind::Pades, t!("kind.pades"), t!("kind.pades_what")));
     } else {
         body = body.push(
             text(t!("kind.pades_needs_pdf"))
@@ -117,8 +151,12 @@ fn kind(state: &State) -> Element<'_, Message> {
         );
     }
     body = body
-        .push(choice(Kind::P7m, t!("kind.p7m")))
-        .push(choice(Kind::Detached, t!("kind.detached")));
+        .push(choice(Kind::P7m, t!("kind.p7m"), t!("kind.p7m_what")))
+        .push(choice(
+            Kind::Detached,
+            t!("kind.detached"),
+            t!("kind.detached_what"),
+        ));
 
     section(t!("kind.section"), body)
 }

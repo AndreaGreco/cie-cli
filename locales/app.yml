@@ -82,14 +82,23 @@ kind:
     it: Tipo di firma
     en: Signature type
   pades:
-    it: PAdES — la firma dentro il PDF
-    en: PAdES — the signature inside the PDF
+    it: PAdES
+    en: PAdES
+  pades_what:
+    it: La firma dentro il PDF.
+    en: The signature inside the PDF.
   p7m:
-    it: CAdES (.p7m) — documento e firma in un unico file
-    en: CAdES (.p7m) — document and signature in one file
+    it: CAdES (.p7m)
+    en: CAdES (.p7m)
+  p7m_what:
+    it: Documento e firma in un unico file.
+    en: Document and signature in one file.
   detached:
-    it: Firma separata (.sig) — più il certificato
-    en: Detached (.sig) — plus the certificate
+    it: Firma separata (.sig)
+    en: Detached signature (.sig)
+  detached_what:
+    it: Più il certificato, in un .cer accanto.
+    en: Plus the certificate, in a .cer beside it.
   pades_needs_pdf:
     it: Il PAdES vale solo per i PDF.
     en: PAdES only applies to PDFs.
@@ -234,6 +243,9 @@ template:
   border:
     it: Bordo
     en: Border
+  snapping:
+    it: Aggancia ai bordi e alle mezzerie (Alt per invertire)
+    en: Latch on to edges and middles (Alt inverts it)
   paper_hint:
     it: Senza sfondo il documento si vede attraverso il riquadro.
     en: With no background the document shows through the box.
