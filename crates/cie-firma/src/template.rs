@@ -1,6 +1,6 @@
 //! The signature box composed piece by piece.
 //!
-//! The other way of filling the box is [`crate::stamp`]: a block of lines that
+//! The other way of filling the box is [`crate::stamp_lines`]: a block of lines that
 //! stack themselves and centre themselves, which is what the command line has
 //! always produced and still does. A template is the opposite arrangement —
 //! every piece sits exactly where it was put, in fractions of the box — and
@@ -198,7 +198,7 @@ fn yes() -> bool {
 impl Template {
     /// The lines alone, laid out the way the stamp has always looked.
     ///
-    /// Not a reproduction of [`crate::stamp`] to the point — that one centres
+    /// Not a reproduction of [`crate::stamp_lines`] to the point — that one centres
     /// a block of stacked lines and this one cannot, being absolute — but the
     /// same lines in the same order at the same sizes, which is what somebody
     /// opening the editor for the first time expects to find in it.

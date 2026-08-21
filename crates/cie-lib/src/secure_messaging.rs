@@ -455,7 +455,7 @@ impl SecureMessaging {
     ///
     /// Va chiamata **prima** di aprire il canale: usa APDU in chiaro
     /// (`IAS::InitExtAuthKeyParam`, IAS.cpp:1086). Di tutta la coppia CA solo
-    /// l'esponente privato e' una costante ([`EXT_AUTH_PRIVEXP`]).
+    /// l'esponente privato e' una costante (`EXT_AUTH_PRIVEXP`).
     pub fn init_ext_auth_key_param(&mut self, card: &PcscCard) -> Result<()> {
         info!("Lettura parametri CA di external authentication...");
 
