@@ -185,6 +185,7 @@ fn page(state: &State) -> Element<'_, Message> {
                 pieces.clone(),
                 art.clone(),
                 paper,
+                state.settings.snapping,
             ));
         }
 
@@ -232,6 +233,18 @@ fn pager(state: &State) -> Element<'_, Message> {
             .style(theme::quiet)
             .on_press(Message::ZoomReset),
         step("+", (state.zoom < 8.0).then_some(Message::ZoomIn)),
+        space::horizontal().width(24),
+        // The same setting the editor's toolbar carries: the box latches on to
+        // the page here, and being sent into a modal to say otherwise would be
+        // a setting hidden from the only place it applies.
+        button(text(crate::icon::SNAP.to_string()).font(crate::icon::FONT).size(14))
+            .style(if state.settings.snapping {
+                theme::tool_chosen
+            } else {
+                theme::tool
+            })
+            .padding([5, 8])
+            .on_press(Message::SnappingToggled(!state.settings.snapping)),
     ]
     .spacing(10)
     .align_y(Alignment::Center)

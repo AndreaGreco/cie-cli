@@ -193,6 +193,7 @@ fn board(state: &State, selected: Option<usize>) -> Element<'_, Message> {
             background: state.settings.active().background,
             border: state.settings.active().border,
         },
+        state.settings.snapping,
     )
 }
 
@@ -231,6 +232,15 @@ fn toolbar(state: &State, selected: Option<usize>) -> Element<'_, Message> {
     };
 
     let mut bar = row![
+        // Latching is not a property of the piece in hand, so it stays lit and
+        // usable with nothing selected at all.
+        chooser(
+            icon::SNAP,
+            t!("template.snapping"),
+            state.settings.snapping,
+            Some(Message::SnappingToggled(!state.settings.snapping)),
+        ),
+        separator(),
         across(icon::ALIGN_LEFT, Align::Left, t!("template.left")),
         across(icon::ALIGN_CENTRE, Align::Centre, t!("template.centre")),
         across(icon::ALIGN_RIGHT, Align::Right, t!("template.right")),

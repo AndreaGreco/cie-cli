@@ -30,6 +30,7 @@ pub fn canvas(
     pieces: Vec<Drawn>,
     art: Option<Art>,
     paper: board::Paper,
+    snapping: bool,
 ) -> Element<'static, Message> {
     canvas::Canvas::new(Stamp {
         ratio: document.aspect_ratio(page),
@@ -38,6 +39,7 @@ pub fn canvas(
         pieces,
         art,
         paper,
+        snapping,
     })
     .width(Fill)
     .height(Fill)
@@ -58,6 +60,8 @@ struct Stamp {
     art: Option<Art>,
     /// What the template says goes behind the stamp.
     paper: board::Paper,
+    /// Whether the box latches on to the page's lines. Alt turns it round.
+    snapping: bool,
 }
 
 /// What the pointer is holding, and where it was last seen.
@@ -69,8 +73,9 @@ struct Dragging {
     travel: Option<Drag>,
     /// The lines the box is sitting on, to draw while it is held.
     guides: (Vec<f32>, Vec<f32>),
-    /// Alt puts the box down where it is put, snapping or not.
-    free: bool,
+    /// Alt, held. It inverts the setting rather than only switching latching
+    /// off. See the same field on the editor's board.
+    alt: bool,
 }
 
 impl Stamp {
@@ -152,13 +157,13 @@ impl canvas::Program<Message> for Stamp {
                 let previous = state.last.replace(p)?;
 
                 let anchors = Anchors::page(self.page_size_pt);
-                let reach = if state.free {
-                    (0.0, 0.0)
-                } else {
+                let reach = if self.snapping != state.alt {
                     (
                         snap::REACH_PX / page.width.max(1.0),
                         snap::REACH_PX / page.height.max(1.0),
                     )
+                } else {
+                    (0.0, 0.0)
                 };
 
                 let moved = match grab {
@@ -192,7 +197,7 @@ impl canvas::Program<Message> for Stamp {
                 None
             }
             iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                state.free = modifiers.alt();
+                state.alt = modifiers.alt();
                 None
             }
             _ => None,

@@ -42,3 +42,6 @@ pub const DUPLICATE: char = '\u{e09e}';
 
 /// `trash-2` — take it out.
 pub const REMOVE: char = '\u{e18e}';
+
+/// `magnet` — latching on to the lines other pieces make.
+pub const SNAP: char = '\u{e2b5}';

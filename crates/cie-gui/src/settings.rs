@@ -40,6 +40,14 @@ pub struct Settings {
     #[serde(default)]
     pub active: usize,
 
+    /// Whether a dragged piece latches on to the lines the others make.
+    ///
+    /// On by default, because most of the time lining things up by eye is the
+    /// harder way to do it. Off is not a lesser mode: a signature that wants
+    /// to sit a hair off a line has nowhere else to be.
+    #[serde(default = "yes")]
+    pub snapping: bool,
+
     /// Where the picture used to live, before there were templates.
     ///
     /// Read once, to carry an existing setting into a template, and never
@@ -51,6 +59,12 @@ pub struct Settings {
     stamp_layout: StampLayout,
 }
 
+/// A setting added after there were settings files defaults to what those
+/// files behaved like, so reading one back changes nothing.
+fn yes() -> bool {
+    true
+}
+
 impl Default for Settings {
     /// One template, so [`Settings::active`] always has something to hand
     /// back. An empty list is a state only a settings file can be in, and only
@@ -59,6 +73,7 @@ impl Default for Settings {
         Self {
             templates: vec![Template::classic(t!("template.plain"))],
             active: 0,
+            snapping: true,
             signature_image: None,
             stamp_layout: StampLayout::default(),
         }

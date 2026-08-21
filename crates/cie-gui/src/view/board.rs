@@ -49,6 +49,7 @@ pub fn canvas(
     picture: Option<Art>,
     size_pt: (f32, f32),
     paper: Paper,
+    snapping: bool,
 ) -> Element<'static, Message> {
     canvas::Canvas::new(Board {
         pieces,
@@ -56,6 +57,7 @@ pub fn canvas(
         picture,
         size_pt,
         paper,
+        snapping,
     })
     .width(Fill)
     .height(Fill)
@@ -72,6 +74,10 @@ struct Board {
     /// measured against.
     size_pt: (f32, f32),
     paper: Paper,
+    /// Whether pieces latch on at all. Alt turns it round for as long as it is
+    /// held, so there is a way to do the other thing without going to look for
+    /// the setting.
+    snapping: bool,
 }
 
 #[derive(Default)]
@@ -86,10 +92,10 @@ struct Dragging {
     /// Kept here rather than worked out again in `draw`, which does not know
     /// what was dragged or where it came from.
     guides: (Vec<f32>, Vec<f32>),
-    /// Alt lets a piece go where it is put. Every editor that snaps needs a
-    /// way not to, or the one place you cannot put something is a hair off a
-    /// line — which is sometimes exactly where it belongs.
-    free: bool,
+    /// Alt, held. It inverts the setting rather than only switching latching
+    /// off: with latching already off, the momentary gesture has to be able to
+    /// reach for a line.
+    alt: bool,
 }
 
 impl Board {
@@ -204,10 +210,10 @@ impl canvas::Program<Message> for Board {
                 let previous = state.last.replace(p)?;
 
                 let anchors = self.anchors(Some(index));
-                let reach = if state.free {
-                    (0.0, 0.0)
-                } else {
+                let reach = if self.snapping != state.alt {
                     self.reach(boxed)
+                } else {
+                    (0.0, 0.0)
                 };
 
                 let moved = match grab {
@@ -251,7 +257,7 @@ impl canvas::Program<Message> for Board {
             // The canvas is handed every event, modifiers included, so Alt can
             // be watched without the window having to route it here.
             iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                state.free = modifiers.alt();
+                state.alt = modifiers.alt();
                 None
             }
             _ => None,

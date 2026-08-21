@@ -80,6 +80,7 @@ pub enum Message {
     TemplateDuplicated,
     TemplateDeleted,
     TemplateRenamed(String),
+    SnappingToggled(bool),
     TemplateBackgroundToggled(bool),
     TemplateBorderToggled(bool),
     /// Pick the picture for the template being edited.
@@ -430,6 +431,10 @@ impl State {
             Message::TemplateDeleted => {}
             Message::TemplateRenamed(name) => {
                 self.settings.active_mut().name = name;
+                self.save_settings();
+            }
+            Message::SnappingToggled(on) => {
+                self.settings.snapping = on;
                 self.save_settings();
             }
             Message::TemplateBackgroundToggled(on) => {
