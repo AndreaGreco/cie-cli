@@ -10,6 +10,7 @@
 mod job;
 mod preview;
 mod settings;
+mod snap;
 mod state;
 mod theme;
 mod view;

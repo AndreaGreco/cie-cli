@@ -6,14 +6,16 @@
 //! `preview::{move_stamp, resize_stamp}` — the rules about not falling off the
 //! edge and not shrinking to nothing are written once and apply to both.
 
+use iced::keyboard;
 use iced::mouse;
-use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
+use iced::widget::canvas::{self, Frame, Geometry, LineDash, Path, Stroke, Text};
 use iced::widget::image;
 use iced::{Color, Element, Fill, Pixels, Point, Rectangle, Renderer, Size, Theme};
 
 use cie_firma::{Align, Drawn, Ink};
 
 use crate::preview::{move_stamp, resize_stamp, Grab};
+use crate::snap::{self, Anchors};
 use crate::state::Message;
 use crate::theme;
 
@@ -64,6 +66,14 @@ struct Board {
 struct Dragging {
     grab: Option<Grab>,
     last: Option<Point>,
+    /// The lines the piece is currently sitting on, to draw while it is held.
+    /// Kept here rather than worked out again in `draw`, which does not know
+    /// what was dragged or where it came from.
+    guides: (Vec<f32>, Vec<f32>),
+    /// Alt lets a piece go where it is put. Every editor that snaps needs a
+    /// way not to, or the one place you cannot put something is a hair off a
+    /// line — which is sometimes exactly where it belongs.
+    free: bool,
 }
 
 impl Board {
@@ -98,6 +108,22 @@ impl Board {
             Point::new(r.x, r.y + r.height),
             Point::new(r.x + r.width, r.y + r.height),
         ]
+    }
+
+    /// The lines everything but the piece in hand offers.
+    fn anchors(&self, dragged: Option<usize>) -> Anchors {
+        let rects: Vec<[f32; 4]> = self.pieces.iter().map(|d| d.placed.rect).collect();
+        Anchors::around(&rects, dragged)
+    }
+
+    /// How far the reach is in fractions of the box, an axis at a time. The
+    /// gesture is a distance on screen, so a box drawn wide has a narrower
+    /// reach in fractions than the same box drawn small.
+    fn reach(&self, boxed: Rectangle) -> (f32, f32) {
+        (
+            snap::REACH_PX / boxed.width.max(1.0),
+            snap::REACH_PX / boxed.height.max(1.0),
+        )
     }
 
     /// What is under a point: a grip of the selected piece first, then any
@@ -157,26 +183,54 @@ impl canvas::Program<Message> for Board {
                 let p = local(cursor.position()?);
                 let previous = state.last.replace(p)?;
 
-                let moved = match grab {
-                    Grab::Body => move_stamp(
-                        rect,
-                        (p.x - previous.x) / boxed.width,
-                        (p.y - previous.y) / boxed.height,
-                    ),
-                    Grab::Corner(corner) => resize_stamp(
-                        rect,
-                        corner,
-                        (
-                            (p.x - boxed.x) / boxed.width,
-                            (p.y - boxed.y) / boxed.height,
-                        ),
-                    ),
+                let anchors = self.anchors(Some(index));
+                let reach = if state.free {
+                    (0.0, 0.0)
+                } else {
+                    self.reach(boxed)
                 };
+
+                let moved = match grab {
+                    Grab::Body => {
+                        let dragged = move_stamp(
+                            rect,
+                            (p.x - previous.x) / boxed.width,
+                            (p.y - previous.y) / boxed.height,
+                        );
+                        // Snapped after the drag rather than folded into it,
+                        // so the clamping that keeps a piece in the box has
+                        // the last word over the latching.
+                        let (dx, dy) = snap::slide(dragged, &anchors, reach);
+                        move_stamp(dragged, dx, dy)
+                    }
+                    Grab::Corner(corner) => {
+                        let at = snap::point(
+                            (
+                                (p.x - boxed.x) / boxed.width,
+                                (p.y - boxed.y) / boxed.height,
+                            ),
+                            &anchors,
+                            reach,
+                        );
+                        resize_stamp(rect, corner, at)
+                    }
+                };
+
+                state.guides = snap::touching(moved, &anchors);
                 Some(canvas::Action::publish(Message::PieceMoved(moved)))
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.grab = None;
                 state.last = None;
+                // The guides belong to the drag. Left up, they would be a set
+                // of lines pointing at nothing.
+                state.guides = (Vec::new(), Vec::new());
+                None
+            }
+            // The canvas is handed every event, modifiers included, so Alt can
+            // be watched without the window having to route it here.
+            iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.free = modifiers.alt();
                 None
             }
             _ => None,
@@ -185,7 +239,7 @@ impl canvas::Program<Message> for Board {
 
     fn draw(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
@@ -235,6 +289,8 @@ impl canvas::Program<Message> for Board {
             }
         }
 
+        guides(&mut frame, boxed, &state.guides, accent);
+
         vec![frame.into_geometry()]
     }
 
@@ -258,6 +314,42 @@ impl canvas::Program<Message> for Board {
             Some((_, Grab::Body)) => mouse::Interaction::Grab,
             None => mouse::Interaction::default(),
         }
+    }
+}
+
+/// The lines the piece in hand is sitting on, drawn right across the box.
+///
+/// Across the whole box rather than just between the two pieces: what the
+/// guide is saying is "this line", and a stub between two rectangles leaves
+/// you working out which line it meant.
+fn guides(frame: &mut Frame, boxed: Rectangle, (xs, ys): &(Vec<f32>, Vec<f32>), accent: Color) {
+    // Dashed, and that is the point: solid, a guide running along the selected
+    // piece's own edge would be indistinguishable from its outline, which is
+    // exactly where guides most often are. A dash reads as a guide without
+    // needing a colour from outside the palette.
+    let stroke = Stroke {
+        line_dash: LineDash {
+            segments: &[4.0, 3.0],
+            offset: 0,
+        },
+        ..Stroke::default()
+            .with_width(1.0)
+            .with_color(Color { a: 0.9, ..accent })
+    };
+
+    for x in xs {
+        let at = boxed.x + x * boxed.width;
+        frame.stroke(
+            &Path::line(Point::new(at, boxed.y), Point::new(at, boxed.y + boxed.height)),
+            stroke,
+        );
+    }
+    for y in ys {
+        let at = boxed.y + y * boxed.height;
+        frame.stroke(
+            &Path::line(Point::new(boxed.x, at), Point::new(boxed.x + boxed.width, at)),
+            stroke,
+        );
     }
 }
 

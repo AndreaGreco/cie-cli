@@ -193,8 +193,8 @@ template:
     it: Firma autografa
     en: Handwritten signature
   piece_hint:
-    it: "Il pezzo compare al centro del riquadro: trascinalo dove vuoi e tira gli angoli per ridimensionarlo."
-    en: "The piece lands in the middle of the box: drag it where you want it and pull the corners to resize."
+    it: "Il pezzo compare al centro del riquadro: trascinalo dove vuoi e tira gli angoli per ridimensionarlo. Si aggancia ai bordi e alla mezzeria degli altri pezzi; tieni premuto Alt per posarlo dove vuoi."
+    en: "The piece lands in the middle of the box: drag it where you want it and pull the corners to resize. It latches on to the other pieces' edges and middles; hold Alt to put it down anywhere."
   nothing_selected:
     it: Nessun pezzo selezionato. Fai clic su un pezzo del riquadro per cambiarlo.
     en: No piece selected. Click a piece in the box to change it.
