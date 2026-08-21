@@ -58,6 +58,8 @@ fn main() -> iced::Result {
     }
 
     iced::application(State::new, update, view::view)
+        // The close button asks rather than closes: see `Message::Quit`.
+        .exit_on_close_request(false)
         .title(|_: &State| rust_i18n::t!("app.title").into_owned())
         .theme(|s: &State| s.mode.theme())
         .subscription(subscription)
@@ -106,7 +108,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 Message::OutputChosen(f.map(|f| f.path().to_path_buf()))
             });
         }
-        Message::Quit => return iced::exit(),
+        // The way out is a message like any other, so the change in hand is
+        // written down before the window goes: `update` settles the run it is
+        // in the middle of.
+        Message::Quit => {
+            state.update(Message::Quit);
+            return iced::exit();
+        }
         // A failure to open is not worth a dialog of its own: the file is
         // written either way, and the desktop already complains on its own.
         Message::OpenResult => {
@@ -135,6 +143,10 @@ fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Opti
 
     match event {
         iced::Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
+        // The window's own close button leaves the same way Ctrl+Q does. It
+        // has to: iced would otherwise take the window down without the
+        // settings being written, and half a typed name would go with it.
+        iced::Event::Window(window::Event::CloseRequested) => Some(Message::Quit),
 
         // `Captured` means a widget already dealt with it - a scrollbar, most
         // often. Only untouched scrolls are ours to interpret.
@@ -147,26 +159,50 @@ fn input(event: iced::Event, status: event::Status, _window: window::Id) -> Opti
             (y != 0.0).then_some(Message::Wheel { up: y > 0.0 })
         }
 
-        iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => match key {
-            keyboard::Key::Named(Named::ArrowLeft | Named::PageUp) => Some(Message::PageBack),
-            keyboard::Key::Named(Named::ArrowRight | Named::PageDown) => Some(Message::PageForward),
-            // The shortcuts the menus advertise, plus the zoom ones that were
-            // here before there were any menus to advertise them.
-            keyboard::Key::Character(ref c) if modifiers.command() => match c.as_str() {
-                "+" | "=" => Some(Message::ZoomIn),
-                "-" => Some(Message::ZoomOut),
-                "0" => Some(Message::ZoomReset),
-                "o" => Some(Message::ChooseDocument),
-                "s" => Some(Message::ChooseOutput),
-                "q" => Some(Message::Quit),
-                "t" => Some(Message::ShowTemplates),
+        // Only keys no widget wanted are shortcuts. Without this a field with
+        // the cursor in it shares its arrows with the pages behind the panel,
+        // and Canc takes a piece out of the template while a name is being
+        // typed. `Ignored` is the only signal there is that something has the
+        // keyboard, and it is the same rule `iced::keyboard::listen` applies.
+        iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. })
+            if status == event::Status::Ignored =>
+        {
+            match key {
+                keyboard::Key::Named(Named::ArrowLeft | Named::PageUp) => Some(Message::PageBack),
+                keyboard::Key::Named(Named::ArrowRight | Named::PageDown) => {
+                    Some(Message::PageForward)
+                }
+                // The selected piece, out of the box. Backspace as well as
+                // Canc: on a laptop keyboard it is often the only one there.
+                keyboard::Key::Named(Named::Delete | Named::Backspace) => {
+                    Some(Message::PieceRemoved)
+                }
+                // The shortcuts the menus advertise, plus the zoom ones that
+                // were here before there were any menus to advertise them.
+                keyboard::Key::Character(ref c) if modifiers.command() => {
+                    match c.to_lowercase().as_str() {
+                        "+" | "=" => Some(Message::ZoomIn),
+                        "-" => Some(Message::ZoomOut),
+                        "0" => Some(Message::ZoomReset),
+                        "o" => Some(Message::ChooseDocument),
+                        "s" => Some(Message::ChooseOutput),
+                        "q" => Some(Message::Quit),
+                        "t" => Some(Message::ShowTemplates),
+                        // Both spellings of putting a change back, because
+                        // both are somebody's habit.
+                        "z" if modifiers.shift() => Some(Message::Redo),
+                        "y" => Some(Message::Redo),
+                        "z" => Some(Message::Undo),
+                        _ => None,
+                    }
+                }
+                // Whatever is laid over the window goes away on Escape. The
+                // card is not interrupted this way: the signing panel does not
+                // listen.
+                keyboard::Key::Named(Named::Escape) => Some(Message::OverlayDismissed),
                 _ => None,
-            },
-            // Whatever is laid over the window goes away on Escape. The card
-            // is not interrupted this way: the signing panel does not listen.
-            keyboard::Key::Named(Named::Escape) => Some(Message::OverlayDismissed),
-            _ => None,
-        },
+            }
+        }
         _ => None,
     }
 }

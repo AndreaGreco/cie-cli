@@ -153,6 +153,9 @@ pub enum Message {
     ShowAbout,
     ShowTemplates,
     OverlayDismissed,
+    /// Takes back the last change to the settings, and puts it back.
+    Undo,
+    Redo,
     Quit,
 
     // Background
@@ -204,6 +207,57 @@ pub enum Menu {
     File,
     Settings,
 }
+
+/// A run of changes that counts as one.
+///
+/// Typing is why this exists: a letter is a message, and neither one undo step
+/// nor one rewrite of the settings file per letter is what anybody means by a
+/// change. A run ends the moment anything else happens - a different kind of
+/// edit, a click, the panel closing - and that is when what it did is written
+/// down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Edit {
+    Name,
+    Text,
+    Size,
+    Box(usize),
+    /// A rectangle under the hand, changing with every frame it moves.
+    Drag,
+    /// A single act: a piece added, a template deleted, a button pressed.
+    /// Never joins the one before it, however alike the two are.
+    Once,
+}
+
+/// Which run of changes a message belongs to, if it changes anything at all.
+fn edit(message: &Message) -> Option<Edit> {
+    Some(match message {
+        Message::TemplateRenamed(_) => Edit::Name,
+        Message::PieceTextChanged(_) => Edit::Text,
+        Message::PieceResized(_) => Edit::Size,
+        Message::BoxSized { side, .. } => Edit::Box(*side),
+        Message::PieceMoved(_) | Message::BoxStretched(_) => Edit::Drag,
+        Message::TemplateChosen(_)
+        | Message::TemplateAdded
+        | Message::TemplateDuplicated
+        | Message::TemplateDeleted
+        | Message::TemplateBackgroundToggled(_)
+        | Message::TemplateBorderToggled(_)
+        | Message::SnappingToggled(_)
+        | Message::PieceAdded(_)
+        | Message::PieceRemoved
+        | Message::PieceBoldToggled(_)
+        | Message::PieceAligned(_)
+        | Message::PieceRaised(_)
+        | Message::SignatureImageChosen(Some(_))
+        | Message::RemoveSignatureImage => Edit::Once,
+        _ => return None,
+    })
+}
+
+/// How far back Ctrl+Z goes. Deep enough to cover an editing session, short
+/// enough that the stack is not worth thinking about: a template is a name, a
+/// handful of pieces and two flags.
+const UNDO_DEPTH: usize = 64;
 
 /// A panel laid over the window that has nothing to do with the card.
 ///
@@ -332,6 +386,15 @@ pub struct State {
     /// rather than something being written to a guess.
     settings_path: Option<PathBuf>,
 
+    /// The settings as they were before each change, and after each one taken
+    /// back. Whole copies rather than a list of what was done: a `Settings` is
+    /// a few hundred bytes, and a copy cannot be wrong about how to reverse
+    /// itself.
+    undo: Vec<Settings>,
+    redo: Vec<Settings>,
+    /// The run of changes in hand, `None` between one and the next.
+    run: Option<Edit>,
+
     identifying: Option<Receiver<Option<String>>>,
     job: Option<Receiver<job::Message>>,
 }
@@ -362,6 +425,9 @@ impl Default for State {
             box_size: written(cie_firma::DEFAULT_SIZE_MM),
             signature: None,
             settings_path: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            run: None,
             identifying: None,
             job: None,
         }
@@ -456,6 +522,23 @@ impl State {
             self.menu = None;
         }
 
+        // Where a change begins and where it ends. The undo step is taken
+        // before the first message of a run, because that is the only moment
+        // the settings are still what they were; the file is written when the
+        // run ends, and anything that is not more of the same run ends it.
+        match edit(&message) {
+            Some(edit) if self.run == Some(edit) && edit != Edit::Once => {}
+            Some(edit) => {
+                self.settle();
+                self.undo.push(self.settings.clone());
+                if self.undo.len() > UNDO_DEPTH {
+                    self.undo.remove(0);
+                }
+                self.run = Some(edit);
+            }
+            None => self.settle(),
+        }
+
         match message {
             Message::MenuToggled(menu) => {
                 // The same title again puts the list away, which is what a
@@ -524,7 +607,6 @@ impl State {
                 self.load_signature();
                 self.fit_stamp();
                 self.show_box_size();
-                self.save_settings();
             }
             Message::TemplateAdded => {
                 self.settings.templates.push(Template::classic(t!("template.new")));
@@ -533,7 +615,6 @@ impl State {
                 self.load_signature();
                 self.fit_stamp();
                 self.show_box_size();
-                self.save_settings();
             }
             Message::TemplateDuplicated => {
                 let mut copy = self.settings.active().clone();
@@ -543,7 +624,6 @@ impl State {
                 self.select(None);
                 self.fit_stamp();
                 self.show_box_size();
-                self.save_settings();
             }
             // The last one never goes: with no templates there is nothing to
             // sign with, and an editor opening on an empty list is an editor
@@ -556,12 +636,10 @@ impl State {
                 self.load_signature();
                 self.fit_stamp();
                 self.show_box_size();
-                self.save_settings();
             }
             Message::TemplateDeleted => {}
             Message::TemplateRenamed(name) => {
                 self.settings.active_mut().name = name;
-                self.save_settings();
             }
             // What was typed stays typed. Out of range or halfway through a
             // number, it simply does not reach the box yet: the field is the
@@ -577,7 +655,6 @@ impl State {
                     size[side] = mm;
                     self.settings.active_mut().set_size_mm(size);
                     self.fit_stamp();
-                    self.save_settings();
                 }
             }
             Message::BoxSized { .. } => {}
@@ -591,15 +668,12 @@ impl State {
             }
             Message::SnappingToggled(on) => {
                 self.settings.snapping = on;
-                self.save_settings();
             }
             Message::TemplateBackgroundToggled(on) => {
                 self.settings.active_mut().background = on;
-                self.save_settings();
             }
             Message::TemplateBorderToggled(on) => {
                 self.settings.active_mut().border = on;
-                self.save_settings();
             }
 
             Message::SignatureImageChosen(Some(path)) => {
@@ -615,19 +689,16 @@ impl State {
                     // silently does nothing.
                     self.add_piece(Piece::Image);
                 }
-                self.save_settings();
             }
             Message::SignatureImageChosen(None) | Message::ChooseSignatureImage => {}
             Message::RemoveSignatureImage => {
                 self.notice = None;
                 self.settings.active_mut().image = None;
                 self.signature = None;
-                self.save_settings();
             }
 
             Message::PieceAdded(piece) => {
                 self.add_piece(piece);
-                self.save_settings();
             }
             Message::PieceSelected(which) => self.select(which),
             Message::PieceMoved(rect) => {
@@ -635,30 +706,27 @@ impl State {
                     piece.rect = rect;
                 }
             }
-            // What the drag has been doing all along, written down once.
-            Message::DragEnded => self.save_settings(),
+            // The drag is over: `settle` above has already written down what
+            // it did, and there is nothing left for the arm itself to do.
+            Message::DragEnded => {}
             Message::PieceResized(size) => {
                 if let Some(piece) = self.selected_piece_mut() {
                     piece.size = size.clamp(4.0, 48.0);
-                    self.save_settings();
                 }
             }
             Message::PieceBoldToggled(bold) => {
                 if let Some(piece) = self.selected_piece_mut() {
                     piece.bold = bold;
-                    self.save_settings();
                 }
             }
             Message::PieceAligned(align) => {
                 if let Some(piece) = self.selected_piece_mut() {
                     piece.align = align;
-                    self.save_settings();
                 }
             }
             Message::PieceRaised(vertical) => {
                 if let Some(piece) = self.selected_piece_mut() {
                     piece.vertical = vertical;
-                    self.save_settings();
                 }
             }
             Message::PieceTextChanged(content) => {
@@ -666,14 +734,12 @@ impl State {
                     && let Piece::Text { content: slot } = &mut piece.piece
                 {
                     *slot = content;
-                    self.save_settings();
                 }
             }
             Message::PieceRemoved => {
                 if let Some(index) = self.selected() {
                     self.settings.active_mut().pieces.remove(index);
                     self.select(None);
-                    self.save_settings();
                 }
             }
 
@@ -710,7 +776,23 @@ impl State {
 
             Message::ShowAbout => self.overlay = Overlay::About,
             Message::ShowTemplates => self.overlay = Overlay::Templates { selected: None },
+            // Escape lets go of the piece in hand before it closes anything:
+            // with something selected, the way out of the selection is the
+            // same key, and closing the panel from under it would be one press
+            // too many.
+            Message::OverlayDismissed if self.selected().is_some() => self.select(None),
             Message::OverlayDismissed => self.overlay = Overlay::None,
+
+            Message::Undo => {
+                let Some(previous) = self.undo.pop() else { return };
+                self.redo.push(std::mem::replace(&mut self.settings, previous));
+                self.settings_replaced();
+            }
+            Message::Redo => {
+                let Some(next) = self.redo.pop() else { return };
+                self.undo.push(std::mem::replace(&mut self.settings, next));
+                self.settings_replaced();
+            }
 
             Message::Tick => self.poll(),
             Message::CardChanged(presence) => self.saw(presence),
@@ -1010,6 +1092,39 @@ impl State {
                     Some(t!("signature.unusable", error = format!("{e:#}")).to_string());
             }
         }
+    }
+
+    /// Ends the run of changes in hand.
+    ///
+    /// This is where the settings file is written, once per run rather than
+    /// once per keystroke, and where a run that turned out to change nothing
+    /// is taken back off the undo stack: a keystroke that did not parse, a
+    /// drag that ended where it started. A step that changes nothing is a
+    /// press of Ctrl+Z that appears to do nothing.
+    fn settle(&mut self) {
+        if self.run.take().is_none() {
+            return;
+        }
+        if self.undo.last() == Some(&self.settings) {
+            self.undo.pop();
+            return;
+        }
+        // A fresh change is the end of the future that was taken back.
+        self.redo.clear();
+        self.save_settings();
+    }
+
+    /// What has to be worked out again when the settings are replaced whole.
+    ///
+    /// The selection goes because the pieces it pointed into may not be there
+    /// any more, and everything else here is read off the settings rather than
+    /// kept in step with them.
+    fn settings_replaced(&mut self) {
+        self.select(None);
+        self.load_signature();
+        self.fit_stamp();
+        self.show_box_size();
+        self.save_settings();
     }
 
     /// Writes the settings back, if there is anywhere to write them.
@@ -1968,6 +2083,91 @@ mod tests {
         state.update(Message::ShowAbout);
         assert_eq!(state.overlay, Overlay::About);
         assert!(matches!(state.phase, Phase::Idle));
+
+        state.update(Message::OverlayDismissed);
+        assert_eq!(state.overlay, Overlay::None);
+    }
+
+    // --- taking it back --------------------------------------------------
+
+    /// A run of keystrokes is one change. One undo step per letter is a
+    /// Ctrl+Z that has to be held down to undo a word.
+    #[test]
+    fn typing_a_name_is_one_change() {
+        let (mut state, _dir) = editing();
+        let before = state.settings.active().name.clone();
+
+        for name in ["N", "No", "Nom", "Nome"] {
+            state.update(Message::TemplateRenamed(name.to_string()));
+        }
+        assert_eq!(state.undo.len(), 1, "one step per letter");
+
+        state.update(Message::Undo);
+        assert_eq!(state.settings.active().name, before);
+    }
+
+    /// Half a number in the millimetres field changes nothing, and a step that
+    /// changes nothing is a press of Ctrl+Z that appears not to work.
+    #[test]
+    fn a_keystroke_that_changes_nothing_leaves_no_step() {
+        let (mut state, _dir) = editing();
+
+        state.update(Message::BoxSized { side: 0, mm: "4".to_string() });
+        state.update(Message::PieceSelected(None));
+        assert!(state.undo.is_empty(), "4 mm is under the minimum: nothing moved");
+        assert!(state.redo.is_empty());
+    }
+
+    /// Both ways down the stack, with the piece coming and going.
+    #[test]
+    fn undo_and_redo_go_both_ways() {
+        let (mut state, _dir) = editing();
+        let before = state.settings.active().pieces.len();
+
+        state.update(Message::PieceAdded(Piece::Caption));
+        assert_eq!(state.settings.active().pieces.len(), before + 1);
+
+        state.update(Message::Undo);
+        assert_eq!(state.settings.active().pieces.len(), before);
+
+        state.update(Message::Redo);
+        assert_eq!(state.settings.active().pieces.len(), before + 1);
+    }
+
+    /// The file is written where the change ends, not where it is typed: the
+    /// settings used to be serialised and rewritten once per letter.
+    #[test]
+    fn the_file_is_written_when_the_run_ends() {
+        let (mut state, dir) = editing();
+        let path = dir.path().join("gui.json");
+        state.settings_path = Some(path.clone());
+
+        state.update(Message::TemplateRenamed("Nuovo".to_string()));
+        assert!(!path.exists(), "written in the middle of the typing");
+
+        // Anything that is not more of the same run ends it.
+        state.update(Message::PieceSelected(None));
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("Nuovo"), "{written}");
+
+        // So does the way out: Ctrl+Q must not take the last word with it.
+        state.update(Message::TemplateRenamed("Ultimo".to_string()));
+        state.update(Message::Quit);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("Ultimo"), "{written}");
+    }
+
+    /// Escape lets go of the piece in hand before it closes anything: two
+    /// meanings, and the innermost one first.
+    #[test]
+    fn escape_lets_go_of_the_piece_first() {
+        let (mut state, _dir) = editing();
+        state.update(Message::PieceAdded(Piece::Caption));
+        assert!(state.selected().is_some());
+
+        state.update(Message::OverlayDismissed);
+        assert!(state.selected().is_none());
+        assert!(matches!(state.overlay, Overlay::Templates { .. }), "the panel went too");
 
         state.update(Message::OverlayDismissed);
         assert_eq!(state.overlay, Overlay::None);
