@@ -19,6 +19,8 @@ use cie_firma::{StampLayout, Template};
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
+use crate::theme::Mode;
+
 /// The file, under the platform's configuration directory.
 const FILE: &str = "gui.json";
 const DIR: &str = "cie";
@@ -39,6 +41,14 @@ pub struct Settings {
     /// than trusted: the file is editable by hand.
     #[serde(default)]
     pub active: usize,
+
+    /// Which look the window wears.
+    ///
+    /// Here rather than in `State` alone because it is exactly the kind of
+    /// thing this file is for: decided once, and not worth deciding again on
+    /// every start. Ctrl+Z does not reach it - see `State::settings_replaced`.
+    #[serde(default)]
+    pub theme: Mode,
 
     /// Whether a dragged piece latches on to the lines the others make.
     ///
@@ -73,6 +83,7 @@ impl Default for Settings {
         Self {
             templates: vec![Template::classic(t!("template.plain"))],
             active: 0,
+            theme: Mode::default(),
             snapping: true,
             signature_image: None,
             stamp_layout: StampLayout::default(),
@@ -186,6 +197,7 @@ mod tests {
                 Template::handwritten("due", PathBuf::from("/tmp/firma.png")),
             ],
             active: 1,
+            theme: Mode::Dark,
             ..Settings::default()
         };
         settings.save(&path).unwrap();

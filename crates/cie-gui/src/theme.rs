@@ -9,6 +9,7 @@
 use iced::font::Weight;
 use iced::widget::{button, container, text_input};
 use iced::{Background, Border, Color, Font, Shadow, Theme};
+use serde::{Deserialize, Serialize};
 
 /// Titillium Web, the face of the Italian public administration design system.
 ///
@@ -28,7 +29,11 @@ pub const UI_STRONG: Font = Font {
 /// Which look the window wears.
 ///
 /// `System` is the default: the desktop already knows what the user wants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+///
+/// Written into the settings file by name, so a look chosen once is still
+/// there tomorrow and the file stays readable by eye.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Mode {
     #[default]
     System,
@@ -37,18 +42,11 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// Resolves to a real theme, asking the desktop when told to.
+    /// The looks on offer, in the order the Settings menu lists them.
     ///
-    /// A desktop that will not say is treated as light: the document in the
-    /// middle of the window is white paper either way.
-    /// Cycles system → light → dark → system.
-    pub fn next(self) -> Self {
-        match self {
-            Mode::System => Mode::Light,
-            Mode::Light => Mode::Dark,
-            Mode::Dark => Mode::System,
-        }
-    }
+    /// A list rather than a cycle: in a menu all three are on show at once,
+    /// and what the next one would be is nobody's question.
+    pub const ALL: [Mode; 3] = [Mode::System, Mode::Light, Mode::Dark];
 
     pub fn label(self) -> std::borrow::Cow<'static, str> {
         match self {
@@ -58,6 +56,10 @@ impl Mode {
         }
     }
 
+    /// Resolves to a real theme, asking the desktop when told to.
+    ///
+    /// A desktop that will not say is treated as light: the document in the
+    /// middle of the window is white paper either way.
     pub fn theme(self) -> Theme {
         let dark = match self {
             Mode::Light => false,
@@ -359,6 +361,24 @@ pub fn menu_entry(theme: &Theme, status: button::Status) -> button::Style {
         } else {
             palette.background.base.text
         },
+        border: Border {
+            radius: 2.0.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// An entry whose own list is out beside it.
+///
+/// Lit the same way the pointer lights it, and for the same reason a title
+/// stays lit while its menu is down: the list to the right has to belong to
+/// something visible.
+pub fn menu_entry_open(theme: &Theme, _status: button::Status) -> button::Style {
+    let palette = theme.extended_palette();
+    button::Style {
+        background: Some(Background::Color(palette.primary.base.color)),
+        text_color: palette.primary.base.text,
         border: Border {
             radius: 2.0.into(),
             ..Border::default()

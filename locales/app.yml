@@ -387,6 +387,9 @@ keyring:
     en: PIN in the keyring
 
 theme:
+  title:
+    it: Tema
+    en: Theme
   system:
     it: Segui il sistema
     en: Follow the system

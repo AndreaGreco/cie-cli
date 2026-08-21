@@ -149,6 +149,9 @@ pub enum Message {
 
     // Menus and the panels they open
     MenuToggled(Menu),
+    /// Opens the list beside an entry, or puts it away. The menu it belongs to
+    /// stays down: the entry that opened it is in there.
+    SubmenuToggled(Submenu),
     MenuClosed,
     ShowAbout,
     ShowTemplates,
@@ -206,6 +209,17 @@ pub enum Phase {
 pub enum Menu {
     File,
     Settings,
+}
+
+/// A list that opens beside an entry of an open menu, rather than under a
+/// title of its own.
+///
+/// One so far. It exists because the three looks are a choice between
+/// alternatives, and a choice belongs in a list of its own rather than loose
+/// among the commands of the menu that leads to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Submenu {
+    Theme,
 }
 
 /// A run of changes that counts as one.
@@ -361,6 +375,9 @@ pub struct State {
     pub phase: Phase,
     /// The menu whose list is down, if any.
     pub menu: Option<Menu>,
+    /// The list open beside one of that menu's entries, if any. Never out
+    /// without `menu`, which is the list it hangs off.
+    pub submenu: Option<Submenu>,
     pub overlay: Overlay,
     pub notice: Option<String>,
     pub mode: Mode,
@@ -418,6 +435,7 @@ impl Default for State {
             card: Card::default(),
             phase: Phase::Idle,
             menu: None,
+            submenu: None,
             overlay: Overlay::None,
             notice: None,
             mode: Mode::default(),
@@ -448,6 +466,7 @@ impl State {
             .unwrap_or_default();
 
         let mut state = Self {
+            mode: settings.theme,
             settings,
             settings_path,
             ..Self::default()
@@ -517,9 +536,14 @@ impl State {
 
         // Anything that is not the menu itself closes it. A list left hanging
         // over the window after the thing it asked for has happened is a list
-        // the user has to dismiss before they can see what they did.
-        if !matches!(message, Message::MenuToggled(_) | Message::Tick) {
+        // the user has to dismiss before they can see what they did. A
+        // submenu never outlives the menu it hangs off.
+        if !matches!(
+            message,
+            Message::MenuToggled(_) | Message::SubmenuToggled(_) | Message::Tick
+        ) {
             self.menu = None;
+            self.submenu = None;
         }
 
         // Where a change begins and where it ends. The undo step is taken
@@ -544,6 +568,10 @@ impl State {
                 // The same title again puts the list away, which is what a
                 // second click on an open menu means everywhere else.
                 self.menu = (self.menu != Some(menu)).then_some(menu);
+                self.submenu = None;
+            }
+            Message::SubmenuToggled(submenu) => {
+                self.submenu = (self.submenu != Some(submenu)).then_some(submenu);
             }
             Message::MenuClosed => {}
 
@@ -798,7 +826,11 @@ impl State {
             Message::CardChanged(presence) => self.saw(presence),
             Message::LookForCard => self.look(),
             Message::ForgetCard => self.forget(),
-            Message::ThemeChanged(mode) => self.mode = mode,
+            Message::ThemeChanged(mode) => {
+                self.mode = mode;
+                self.settings.theme = mode;
+                self.save_settings();
+            }
 
             // Side effects with nothing to change: the view turns these into
             // commands, `update` only has to not choke on them.
@@ -1120,6 +1152,12 @@ impl State {
     /// any more, and everything else here is read off the settings rather than
     /// kept in step with them.
     fn settings_replaced(&mut self) {
+        // The look is not one of the things Ctrl+Z is about. It rides in the
+        // settings file because that is where things that outlast the window
+        // go, but it is chosen from a menu rather than composed, and a
+        // template edit taken back must not repaint the window around it. So
+        // the snapshot's look is dropped and the one on screen kept.
+        self.settings.theme = self.mode;
         self.select(None);
         self.load_signature();
         self.fit_stamp();
@@ -1963,6 +2001,76 @@ mod tests {
         state.update(Message::MenuToggled(Menu::File));
         state.update(Message::ChooseDocument);
         assert_eq!(state.menu, None, "running a command should have closed it");
+    }
+
+    /// The look is chosen from a list beside the Settings menu. Opening that
+    /// list leaves the menu where it is - the entry that opened it is in there
+    /// - and choosing a look puts both away, like every other menu command.
+    #[test]
+    fn a_look_is_chosen_from_the_submenu() {
+        let mut state = State::default();
+        assert_eq!(state.mode, Mode::System);
+
+        state.update(Message::MenuToggled(Menu::Settings));
+        state.update(Message::SubmenuToggled(Submenu::Theme));
+        assert_eq!(state.menu, Some(Menu::Settings), "the menu stays down");
+        assert_eq!(state.submenu, Some(Submenu::Theme));
+
+        state.update(Message::ThemeChanged(Mode::Dark));
+
+        assert_eq!(state.mode, Mode::Dark);
+        assert_eq!(state.menu, None, "choosing a look should have closed it");
+        assert_eq!(state.submenu, None);
+    }
+
+    /// A submenu is never out on its own: it hangs off an entry of a menu, so
+    /// it goes when that menu goes, and when another title takes its place.
+    #[test]
+    fn a_submenu_does_not_outlive_its_menu() {
+        let mut state = State::default();
+        state.update(Message::MenuToggled(Menu::Settings));
+        state.update(Message::SubmenuToggled(Submenu::Theme));
+
+        state.update(Message::MenuToggled(Menu::File));
+        assert_eq!(state.submenu, None, "another title closes it");
+
+        state.update(Message::MenuToggled(Menu::Settings));
+        state.update(Message::SubmenuToggled(Submenu::Theme));
+        state.update(Message::SubmenuToggled(Submenu::Theme));
+        assert_eq!(state.submenu, None, "the same entry again puts it away");
+
+        state.update(Message::SubmenuToggled(Submenu::Theme));
+        state.update(Message::MenuClosed);
+        assert_eq!(state.submenu, None, "a click outside takes both");
+    }
+
+    /// A look chosen once is still there tomorrow: it goes into the settings
+    /// file the moment it is picked, rather than at the end of a run of
+    /// changes, because there is no run - it is one press.
+    #[test]
+    fn the_look_is_written_down_and_read_back() {
+        let (mut state, dir) = editing();
+        let path = dir.path().join("gui.json");
+        state.settings_path = Some(path.clone());
+
+        state.update(Message::ThemeChanged(Mode::Dark));
+
+        assert_eq!(state.settings.theme, Mode::Dark);
+        assert_eq!(Settings::load(&path).theme, Mode::Dark);
+    }
+
+    /// Ctrl+Z is about the template being composed. The look rides in the same
+    /// file, and taking a change back must not repaint the window around it.
+    #[test]
+    fn undo_leaves_the_look_alone() {
+        let (mut state, _dir) = editing();
+
+        state.update(Message::PieceAdded(Piece::Caption));
+        state.update(Message::ThemeChanged(Mode::Dark));
+        state.update(Message::Undo);
+
+        assert_eq!(state.mode, Mode::Dark, "undo went back past the look");
+        assert_eq!(state.settings.theme, Mode::Dark, "and would write it back");
     }
 
     /// The card thread ticks every 100 ms while it is working. If that closed

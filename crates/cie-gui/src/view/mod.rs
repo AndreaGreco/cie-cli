@@ -71,9 +71,6 @@ fn app_bar(state: &State) -> Element<'_, Message> {
                 .on_press(Message::ShowAbout),
             space::horizontal(),
             card_badge(state),
-            button(text(state.mode.label().into_owned()).size(12))
-                .style(theme::quiet)
-                .on_press(Message::ThemeChanged(state.mode.next())),
         ]
         .spacing(4)
         .align_y(Alignment::Center)
