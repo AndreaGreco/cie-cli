@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "cie-cli"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "cie-firma",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "cie-firma"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "cie-gui"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "cie-firma",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "cie-lib"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "der 0.8.1",
  "des 0.9.0",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "cie-pgp"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "cie-firma",
