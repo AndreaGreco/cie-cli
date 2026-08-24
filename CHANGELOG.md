@@ -9,6 +9,8 @@ versionamento e' [SemVer](https://semver.org/lang/it/).
 
 ## [0.1.8] - 2026-08-24
 
+## [0.1.8] - 2026-08-24
+
 ### Changed
 
 - Il PIN salvato nel portachiavi non e' piu' un lasciapassare: prima di ogni
