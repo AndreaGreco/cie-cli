@@ -1,7 +1,7 @@
 //! The column of cards: what is being signed, how, and where the box goes.
 
 use iced::widget::{
-    button, checkbox, column, container, pick_list, radio, row, scrollable, space, text,
+    button, column, container, pick_list, radio, row, scrollable, space, text,
     text_input, tooltip, MouseArea,
 };
 use iced::{Alignment, Border, Color, Element, Fill, Length};
@@ -107,35 +107,44 @@ fn size_and_pages(bytes: usize, pages: usize) -> String {
 const RADIO: f32 = 15.0;
 const RADIO_GAP: f32 = 8.0;
 
-fn kind(state: &State) -> Element<'_, Message> {
-    // The name on one line and what it means on the next, quieter and smaller.
-    // On one line the three of them read as a wall of prose in a column 340
-    // pixels wide; split, the eye picks the three names out first and reads
-    // the rest only if it needs to.
-    let choice = |k: Kind,
-                  name: std::borrow::Cow<'_, str>,
-                  what: std::borrow::Cow<'_, str>| {
-        let block = column![
-            radio(name.into_owned(), k, Some(state.kind), Message::KindChanged)
-                .size(RADIO)
-                .spacing(RADIO_GAP)
-                .text_size(14),
-            row![
-                space::horizontal().width(RADIO + RADIO_GAP),
-                text(what.into_owned())
-                    .size(11)
-                    .style(iced::widget::text::secondary),
-            ],
-        ]
-        .spacing(1);
+/// A radio with its name on one line and what it means on the next, quieter
+/// and smaller.
+///
+/// On one line a handful of them read as a wall of prose in a column 340
+/// pixels wide; split, the eye picks the names out first and reads the rest
+/// only if it needs to.
+fn choice<'a, V: Copy + Eq + 'a>(
+    value: V,
+    selected: V,
+    name: std::borrow::Cow<'a, str>,
+    what: std::borrow::Cow<'a, str>,
+    on_choose: fn(V) -> Message,
+) -> Element<'a, Message> {
+    let block = column![
+        radio(name.into_owned(), value, Some(selected), on_choose)
+            .size(RADIO)
+            .spacing(RADIO_GAP)
+            .text_size(14),
+        row![
+            space::horizontal().width(RADIO + RADIO_GAP),
+            text(what.into_owned())
+                .size(11)
+                .style(iced::widget::text::secondary),
+        ],
+    ]
+    .spacing(1);
 
-        // The whole block answers to a click, not just the circle and the
-        // name: a line of text sitting under a radio that does nothing when
-        // you press it reads as broken.
-        MouseArea::new(block)
-            .interaction(iced::mouse::Interaction::Pointer)
-            .on_press(Message::KindChanged(k))
-    };
+    // The whole block answers to a click, not just the circle and the name: a
+    // line of text sitting under a radio that does nothing when you press it
+    // reads as broken.
+    MouseArea::new(block)
+        .interaction(iced::mouse::Interaction::Pointer)
+        .on_press(on_choose(value))
+        .into()
+}
+
+fn kind(state: &State) -> Element<'_, Message> {
+    let choice = |k: Kind, name, what| choice(k, state.kind, name, what, Message::KindChanged);
 
     let mut body = column![].spacing(12);
 
@@ -159,23 +168,6 @@ fn kind(state: &State) -> Element<'_, Message> {
         ));
 
     section(t!("kind.section"), body)
-}
-
-/// `pick_list` needs `Display`, and a bare `u8` would offer "1 2 3" instead of
-/// saying what each level allows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Level(u8);
-
-const LEVELS: [Level; 3] = [Level(1), Level(2), Level(3)];
-
-impl std::fmt::Display for Level {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&match self.0 {
-            1 => t!("stamp.certify_1"),
-            3 => t!("stamp.certify_3"),
-            _ => t!("stamp.certify_2"),
-        })
-    }
 }
 
 /// The box that is about to be signed on to this document: which one it is,
@@ -314,28 +306,26 @@ fn rule<'a>() -> Element<'a, Message> {
 /// what anybody may still change after this signature - and it is no more part
 /// of the rectangle than the file name is.
 fn certification(state: &State) -> Element<'_, Message> {
-    let mut body = column![
+    let choice =
+        |level: Option<u8>, name, what| choice(level, state.certify, name, what, Message::Certify);
+
+    // From the one that forbids nothing to the one that forbids everything:
+    // read top to bottom, each step takes something more away.
+    let body = column![
         row![
-            checkbox(state.certify.is_some())
-                .label(t!("stamp.certify").into_owned())
-                .on_toggle(Message::CertifyToggled)
-                .size(15)
-                .text_size(14),
-            space::horizontal(),
+            text(t!("stamp.certify_intro"))
+                .size(12)
+                .style(iced::widget::text::secondary)
+                .width(Fill),
             explain(t!("stamp.certify_what")),
         ]
-        .spacing(8)
-        .align_y(Alignment::Center),
+        .spacing(8),
+        choice(None, t!("stamp.certify_none"), t!("stamp.certify_none_what")),
+        choice(Some(3), t!("stamp.certify_3"), t!("stamp.certify_3_what")),
+        choice(Some(2), t!("stamp.certify_2"), t!("stamp.certify_2_what")),
+        choice(Some(1), t!("stamp.certify_1"), t!("stamp.certify_1_what")),
     ]
-    .spacing(10);
-
-    if let Some(level) = state.certify {
-        body = body.push(
-            pick_list(LEVELS, Some(Level(level)), |l| Message::CertifyLevel(l.0))
-                .text_size(13)
-                .padding(6),
-        );
-    }
+    .spacing(12);
 
     section(t!("stamp.certify_section"), body)
 }

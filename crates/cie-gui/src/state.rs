@@ -89,8 +89,8 @@ pub enum Message {
     /// The wheel turned over something that did not want it.
     Wheel { up: bool },
     ReasonChanged(String),
-    CertifyToggled(bool),
-    CertifyLevel(u8),
+    /// The DocMDP level, or `None` for a plain approval signature.
+    Certify(Option<u8>),
 
     // Templates. These outlast the document, and the window.
     /// Which template signs. Also which one the editor is showing.
@@ -626,8 +626,7 @@ impl State {
                 self.rasterise();
             }
             Message::ReasonChanged(r) => self.reason = r,
-            Message::CertifyToggled(on) => self.certify = on.then_some(2),
-            Message::CertifyLevel(l) => self.certify = Some(l),
+            Message::Certify(level) => self.certify = level,
 
             Message::TemplateChosen(index) => {
                 self.settings.active = index.min(self.settings.templates.len() - 1);

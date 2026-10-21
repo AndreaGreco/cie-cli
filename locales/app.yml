@@ -122,21 +122,36 @@ stamp:
   certify_section:
     it: Certificazione
     en: Certification
-  certify:
-    it: Certifica il documento
-    en: Certify the document
+  certify_intro:
+    it: "Che cosa si potrà ancora fare sul PDF dopo questa firma. Vale solo se è la prima firma del documento."
+    en: "What may still be done to the PDF after this signature. Only works if this is the document's first signature."
   certify_what:
-    it: "Una firma di certificazione scrive nel documento che cosa si potrà ancora cambiare dopo di essa. Un PDF ne ammette una sola, ed è la prima firma. Senza spunta questa è una normale firma di approvazione, che non toglie niente a chi firma dopo."
-    en: "A certifying signature writes into the document what may still be changed after it. A PDF takes only one, and it is the first signature. Unticked, this is an ordinary approval signature and takes nothing away from whoever signs next."
-  certify_1:
-    it: nessuna modifica
-    en: no changes allowed
-  certify_2:
-    it: moduli e altre firme
-    en: forms and further signatures
+    it: "La scelta viene scritta dentro il PDF. Un lettore come Acrobat la controlla: se dopo la firma qualcuno fa una modifica non consentita, la certificazione risulta non valida; le modifiche consentite invece la lasciano valida. Un PDF può avere una sola firma di certificazione, ed è la prima."
+    en: "The choice is written into the PDF. A reader such as Acrobat checks it: a change made after the signature that is not allowed makes the certification invalid, while the allowed ones leave it valid. A PDF can carry only one certifying signature, and it is the first one."
+  certify_none:
+    it: Nessuna certificazione
+    en: No certification
+  certify_none_what:
+    it: "Firma normale, di approvazione.\nSì: altre firme, moduli, commenti. Il documento non vieta nulla.\nOgni modifica successiva resta comunque visibile come nuova revisione."
+    en: "An ordinary approval signature.\nYes: further signatures, forms, comments. The document forbids nothing.\nAny later change still shows up as a new revision."
   certify_3:
-    it: moduli, firme e annotazioni
-    en: forms, signatures and annotations
+    it: Moduli, firme e commenti
+    en: Forms, signatures and comments
+  certify_3_what:
+    it: "Sì: compilare i moduli, aggiungere firme, commenti ed evidenziazioni.\nNo: cambiare testo, immagini o pagine."
+    en: "Yes: filling in forms, adding signatures, comments and highlights.\nNo: changing text, images or pages."
+  certify_2:
+    it: Moduli e firme
+    en: Forms and signatures
+  certify_2_what:
+    it: "Sì: compilare i moduli, aggiungere firme.\nNo: commenti ed evidenziazioni, cambiare testo, immagini o pagine."
+    en: "Yes: filling in forms, adding signatures.\nNo: comments and highlights, changing text, images or pages."
+  certify_1:
+    it: Nessuna modifica
+    en: No changes
+  certify_1_what:
+    it: "Il documento è chiuso così com'è.\nNo: qualunque modifica, compresa un'altra firma: anche una seconda firma rende non valida la certificazione."
+    en: "The document is closed as it stands.\nNo: any change, another signature included: even a second signature makes the certification invalid."
   facsimile:
     it: "Il testo è un facsimile: nome e codice fiscale li legge dalla carta al momento della firma."
     en: "The text is a mock-up: name and tax code are read off the card at signing time."
