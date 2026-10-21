@@ -23,6 +23,12 @@ pub enum CieError {
     #[error("Errore di comunicazione con il lettore: {0}")]
     Transport(String),
 
+    /// La carta c'e' ma non risponde ancora: appena resettata, o un lettore
+    /// NFC che la sta riattivando. Passa da sola in qualche centinaio di
+    /// millisecondi, quindi chi apre la connessione riprova invece di arrendersi.
+    #[error("La carta non e' ancora pronta: {0}")]
+    NotReady(String),
+
     /// La carta ha risposto con uno status word diverso da 9000.
     #[error("La carta ha risposto {sw:04X}")]
     Card { sw: u16 },
@@ -55,4 +61,14 @@ pub enum CieError {
 
     #[error("Errore I/O: {0}")]
     IoError(#[from] std::io::Error),
+}
+
+impl CieError {
+    /// Vale la pena riprovare da capo, con una connessione nuova.
+    ///
+    /// Solo prima che il canale sicuro sia aperto: a meta' sessione una carta
+    /// resettata ha perso le chiavi, e riprovare il comando non la riporta indietro.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, CieError::NotReady(_) | CieError::NoCiePresent)
+    }
 }

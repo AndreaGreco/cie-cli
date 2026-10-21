@@ -3,6 +3,8 @@
 //! Questo modulo implementa la comunicazione diretta con la Carta d'Identità Elettronica
 //! usando lo standard PC/SC, bypassando completamente il middleware CIE.
 
+use std::time::Duration;
+
 use pcsc::*;
 use tracing::{debug, info, warn};
 
@@ -37,25 +39,61 @@ impl PcscContext {
         Ok(reader_names)
     }
 
-    /// Connette a un lettore specifico
+    /// Connette a un lettore specifico e prende la carta in esclusiva.
+    ///
+    /// La transazione PC/SC resta aperta per tutta la vita della connessione:
+    /// il canale sicuro dura decine di APDU con un contatore che avanza a ogni
+    /// comando, e un SELECT di qualcun altro in mezzo (un'altra nostra
+    /// connessione, OpenSC, il browser) lo romperebbe senza appello. Chi arriva
+    /// dopo aspetta, o si prende un `SharingViolation` invece di sporcarci la
+    /// sessione.
+    ///
+    /// Si chiude da sola: `SCardDisconnect`, che il `Drop` di `pcsc::Card`
+    /// chiama con `ResetCard`, rilascia anche la transazione. Il reset e' voluto:
+    /// cancella il PIN verificato e le chiavi di sessione dalla carta.
     pub fn connect(&self, reader: &str) -> Result<PcscCard> {
         info!("Connessione al lettore: {}", reader);
 
         let reader_cstr = std::ffi::CString::new(reader)
             .map_err(|_| CieError::NoReaderFound)?;
 
-        let card = self.ctx.connect(&reader_cstr, ShareMode::Shared, Protocols::ANY)
-            .map_err(|_| CieError::NoCiePresent)?;        Ok(PcscCard { card })
+        let mut card = self.ctx.connect(&reader_cstr, ShareMode::Shared, Protocols::ANY)
+            .map_err(from_pcsc)?;
+        take_exclusive(&mut card)?;
+        ready(&card)?;
+        Ok(PcscCard { card })
     }
 
-    /// Trova e connette alla prima CIE disponibile
+    /// Trova e connette alla prima CIE disponibile.
+    ///
+    /// Riprova per un po' se la carta non e' ancora pronta: chiudere la
+    /// connessione precedente l'ha resettata, e un lettore NFC per resettarla
+    /// spegne e riaccende il campo. Chi firma due volte di seguito arriva
+    /// proprio in quella finestra.
     pub fn connect_to_cie(&self) -> Result<PcscCard> {
+        let mut attempt = 1;
+        loop {
+            match self.connect_once() {
+                Err(e) if e.is_transient() && attempt < ATTEMPTS => {
+                    debug!("carta non pronta ({}), tentativo {} di {}", e, attempt, ATTEMPTS);
+                    std::thread::sleep(PAUSE * attempt);
+                    attempt += 1;
+                }
+                outcome => return outcome,
+            }
+        }
+    }
+
+    fn connect_once(&self) -> Result<PcscCard> {
         let readers = self.list_readers()?;
 
         if readers.is_empty() {
             return Err(CieError::NoReaderFound);
         }
 
+        // Fra i lettori senza carta, uno con la carta che si sta svegliando:
+        // e' il suo errore quello che conta, perche' e' l'unico che passa.
+        let mut last = CieError::NoCiePresent;
         for reader in readers {
             debug!("Tentativo connessione a: {}", reader);
             match self.connect(&reader) {
@@ -65,12 +103,78 @@ impl PcscContext {
                 }
                 Err(e) => {
                     debug!("Connessione fallita: {:?}", e);
-                    continue;
+                    if !matches!(e, CieError::NoCiePresent) {
+                        last = e;
+                    }
                 }
             }
         }
 
-        Err(CieError::NoCiePresent)
+        Err(last)
+    }
+}
+
+/// Quante volte provare a connettersi prima di dire che la carta non c'e'.
+const ATTEMPTS: u32 = 5;
+
+/// La pausa fra un tentativo e l'altro, che cresce a ogni giro: in tutto
+/// fanno circa due secondi, abbastanza per un lettore NFC che riattiva la carta.
+const PAUSE: Duration = Duration::from_millis(200);
+
+/// Apre la transazione e ne butta la guardia.
+///
+/// `pcsc::Transaction` prende in prestito la `Card`, e quindi non puo' vivere
+/// nella stessa struct: dimenticarla tiene aperta la transazione senza tenere
+/// il prestito, e la chiude la disconnessione.
+///
+/// `ResetCard` qui vuol dire che qualcuno ha resettato la carta dopo la nostra
+/// connessione: basta riconnettersi, la carta e' la stessa.
+fn take_exclusive(card: &mut Card) -> Result<()> {
+    for _ in 0..ATTEMPTS {
+        match card.transaction2() {
+            Ok(tx) => {
+                std::mem::forget(tx);
+                return Ok(());
+            }
+            Err((card, Error::ResetCard)) => {
+                debug!("carta resettata prima della transazione, riconnessione");
+                card.reconnect(ShareMode::Shared, Protocols::ANY, Disposition::LeaveCard)
+                    .map_err(from_pcsc)?;
+            }
+            Err((_, e)) => return Err(from_pcsc(e)),
+        }
+    }
+    Err(CieError::NotReady("la carta continua a essere resettata".into()))
+}
+
+/// La carta ha finito di accendersi.
+///
+/// Guardato prima di mandare qualunque APDU: una carta ancora a meta' del
+/// reset risponde al primo comando con un errore di trasporto, e a quel punto
+/// non si sa piu' se il comando sia arrivato o no.
+///
+/// `POWERED` e non `SPECIFIC`: pcsc-lite riporta una carta pronta come
+/// `PRESENT | POWERED | NEGOTIABLE` anche dopo la connessione, e chiedere il
+/// protocollo negoziato la dava per non pronta per sempre.
+fn ready(card: &Card) -> Result<()> {
+    let status = card.status2_owned().map_err(from_pcsc)?.status();
+    if status.contains(Status::PRESENT | Status::POWERED) {
+        Ok(())
+    } else {
+        Err(CieError::NotReady(format!("stato del lettore {status:?}")))
+    }
+}
+
+/// Traduce un errore PC/SC distinguendo quello che passa da solo.
+fn from_pcsc(e: Error) -> CieError {
+    match e {
+        Error::NoSmartcard => CieError::NoCiePresent,
+        Error::ResetCard
+        | Error::RemovedCard
+        | Error::UnpoweredCard
+        | Error::UnresponsiveCard
+        | Error::SharingViolation => CieError::NotReady(format!("{e:?}")),
+        e => CieError::Transport(format!("{e:?}")),
     }
 }
 
