@@ -32,9 +32,12 @@ about:
   version:
     it: Versione
     en: Version
-  author:
-    it: Autore
-    en: Author
+  build:
+    it: Build
+    en: Build
+  authors:
+    it: Autori
+    en: Authors
   licence:
     it: Licenza
     en: Licence
